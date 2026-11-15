@@ -9,7 +9,7 @@ local addonName, ns = ...
 -- readable, then its spell ID is remembered in SavedVariables.
 
 local BAR_WIDTH, BAR_HEIGHT = 220, 22
-local DEFAULT_POSITION = { "CENTER", "CENTER", 0, -160 }
+local DEFAULT_POSITION = { "CENTER", "CENTER", 0, 0 }
 
 local SEAL_NAME_PATTERNS = { "^Sceau ", "^Seal of " }
 
