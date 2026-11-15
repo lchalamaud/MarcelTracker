@@ -57,3 +57,4 @@ Conséquences pour le code :
 - **Interdiction de push sur `main` et `develop`.** Seules les branches de feature sont poussées.
 - **Toujours demander avant de push**, et **toujours demander avant de merger une PR**.
 - Les PR sont fusionnées en **squash and merge** : le titre de la PR devient le commit final, il doit donc porter le gitmoji.
+- Chaque description de PR contient une section **« Validation tests »** : une checklist (`- [ ]`) des tests à effectuer en jeu pour valider le changement (étapes concrètes : commande à taper, situation à reproduire, résultat attendu).
