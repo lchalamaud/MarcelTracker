@@ -6,3 +6,5 @@
 ## SavedVariables: MarcelTrackerDB
 
 MarcelTracker.lua
+Widgets\TimerBar.lua
+Trackers\PaladinSeal.lua
