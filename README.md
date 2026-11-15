@@ -9,6 +9,7 @@ Cloner ce repo dans `World of Warcraft/_forever_/Interface/AddOns/MarcelTracker`
 ## Commandes
 
 - `/marcel` ou `/marceltracker` : aide
+- `/marcel config` : ouvrir la fenêtre de configuration (taille, textes, couleur, position… appliqués en direct)
 - `/marcel unlock` / `/marcel lock` : déverrouiller / verrouiller les barres pour les déplacer
 - `/marcel reset` : remettre les barres à leur position par défaut
 
