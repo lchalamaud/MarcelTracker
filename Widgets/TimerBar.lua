@@ -75,6 +75,7 @@ ns.TimerBarDefaults = {
     showTime = true,
     fontSize = 10,
     labelAlign = "CENTER",
+    textOutline = true,
 }
 
 -- Option descriptors for the config page (see Config/Controls.lua), to be
@@ -121,6 +122,7 @@ ns.TimerBarOptions = {
         { "CENTER", "Au centre" },
         { "LEFT", "À gauche" },
     } },
+    { type = "toggle", key = "textOutline", label = "Contour noir fin", half = true },
     { type = "slider", key = "fontSize", label = "Taille de police", min = 6, max = 24, step = 1 },
 }
 
@@ -317,8 +319,14 @@ function TimerBar:ApplySettings()
     self.spark:SetShown(self.sparkActive and s.showSpark)
 
     if self.fontFile then
-        label:SetFont(self.fontFile, s.fontSize, self.fontFlags)
-        timeText:SetFont(self.fontFile, s.fontSize, self.fontFlags)
+        -- "OUTLINE" is the thinnest outline the client offers (about 1px). The
+        -- drop shadow is removed with it, or the two add up into a thick edge.
+        local flags = s.textOutline and "OUTLINE" or self.fontFlags
+        local shadowAlpha = s.textOutline and 0 or 1
+        for _, text in ipairs({ label, timeText }) do
+            text:SetFont(self.fontFile, s.fontSize, flags)
+            text:SetShadowColor(0, 0, 0, shadowAlpha)
+        end
     end
     timeText:SetShown(s.showTime)
     label:SetShown(s.showLabel)
