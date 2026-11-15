@@ -16,12 +16,11 @@ local addonName, ns = ...
 local SPARK_TEXTURE = "Interface\\CastingBar\\UI-CastingBar-Spark"
 local TEXT_UPDATE_INTERVAL = 0.1
 
--- Heartbeat of the time text when the timer is about to run out: one beat
--- (grow then shrink) per period.
+-- Heartbeat of the time text when the timer is about to run out: it grows
+-- then shrinks back, continuously.
 local PULSE_THRESHOLD = 5 -- seconds left
 local PULSE_SCALE = 1.15
-local PULSE_BEAT = 0.15   -- duration of the growth (and of the shrinking)
-local PULSE_REST = 0.35   -- pause between two beats, text at its normal size
+local PULSE_HALF = 0.35   -- duration of the growth (and of the shrinking)
 
 -- Built-in textures only (no LibSharedMedia). Keys are what gets saved.
 local TEXTURES = {
@@ -331,9 +330,11 @@ function ns.CreateTimerBar(settings)
     timeText:SetJustifyH("RIGHT")
     self.timeText = timeText
 
-    -- Heartbeat: a single scale animation played back and forth ("BOUNCE"), so
-    -- the start delay becomes the rest between two beats. An animation does not
-    -- change the layout, so the label anchored to the time text does not move.
+    -- Heartbeat: a single scale animation played back and forth ("BOUNCE"),
+    -- eased at both ends. No delay: while an animation waits it is not applied,
+    -- so on the way back the text would snap to its normal size and jump. An
+    -- animation does not change the layout, so the label anchored to the time
+    -- text does not move.
     if timeText.CreateAnimationGroup then
         local pulse = timeText:CreateAnimationGroup()
         pulse:SetLooping("BOUNCE")
@@ -347,8 +348,7 @@ function ns.CreateTimerBar(settings)
             scale:SetScale(PULSE_SCALE, PULSE_SCALE)
         end
         scale:SetOrigin("CENTER", 0, 0)
-        scale:SetDuration(PULSE_BEAT)
-        scale:SetStartDelay(PULSE_REST / 2)
+        scale:SetDuration(PULSE_HALF)
         scale:SetSmoothing("IN_OUT")
         self.pulse = pulse
     end
