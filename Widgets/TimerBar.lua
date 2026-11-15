@@ -19,8 +19,8 @@ local TEXT_UPDATE_INTERVAL = 0.1
 -- Heartbeat of the time text when the timer is about to run out: it grows
 -- then shrinks back, continuously.
 local PULSE_THRESHOLD = 5 -- seconds left
-local PULSE_SCALE = 1.15
-local PULSE_HALF = 0.35   -- duration of the growth (and of the shrinking)
+local PULSE_SCALE = 1.1
+local PULSE_HALF = 0.27   -- duration of the growth (and of the shrinking)
 
 -- Built-in textures only (no LibSharedMedia). Keys are what gets saved.
 local TEXTURES = {
