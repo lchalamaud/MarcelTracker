@@ -10,15 +10,14 @@ local addonName, ns = ...
 --   * Auras secret (in combat, Midnight restrictions): any aura read from addon
 --     code raises an error, so auras are not touched at all. The bar is driven
 --     by the player's own casts instead (UNIT_SPELLCAST_SUCCEEDED, readable):
---     casting a seal starts a timer with the remembered duration, casting
---     Judgement consumes the seal. Leaving combat resyncs from the auras.
+--     casting a seal starts a timer with the remembered duration (on Forever,
+--     Judgement does not consume the seal). Leaving combat resyncs from the auras.
 
 local BAR_WIDTH, BAR_HEIGHT = 220, 22
 local DEFAULT_POSITION = { "CENTER", "CENTER", 0, 0 }
 local DEFAULT_SEAL_DURATION = 30
 
 local SEAL_NAME_PATTERNS = { "^Sceau ", "^Seal of " }
-local JUDGEMENT_NAME_PATTERNS = { "^Jugement", "^Judgement" }
 
 local KNOWN_SEAL_IDS = {
     -- Seal of Righteousness
@@ -155,10 +154,6 @@ function Tracker:OnSpellCast(spellID)
         else
             self:SyncFromAuras()
         end
-    elseif AurasAreSecret() and MatchesAny(name, JUDGEMENT_NAME_PATTERNS) then
-        -- Judgement consumes the active seal. When auras are readable,
-        -- UNIT_AURA reports the removal by itself.
-        self:ShowIdle()
     end
 end
 
