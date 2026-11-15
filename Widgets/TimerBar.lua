@@ -16,6 +16,13 @@ local addonName, ns = ...
 local SPARK_TEXTURE = "Interface\\CastingBar\\UI-CastingBar-Spark"
 local TEXT_UPDATE_INTERVAL = 0.1
 
+-- Heartbeat of the time text when the timer is about to run out: one beat
+-- (grow then shrink) per period.
+local PULSE_THRESHOLD = 5 -- seconds left
+local PULSE_SCALE = 1.15
+local PULSE_BEAT = 0.15   -- duration of the growth (and of the shrinking)
+local PULSE_REST = 0.35   -- pause between two beats, text at its normal size
+
 -- Built-in textures only (no LibSharedMedia). Keys are what gets saved.
 local TEXTURES = {
     blizzard = "Interface\\TargetingFrame\\UI-StatusBar",
@@ -78,6 +85,7 @@ ns.TimerBarDefaults = {
     textOutline = true,
     fadeIn = 200, -- milliseconds, 0 = no fade
     fadeOut = 300,
+    timePulse = true,
 }
 
 -- Option descriptors for the config page (see Config/Controls.lua), to be
@@ -127,6 +135,8 @@ ns.TimerBarOptions = {
         { "LEFT", "À gauche" },
     } },
     { type = "toggle", key = "textOutline", label = "Contour noir fin", half = true },
+    { type = "toggle", key = "timePulse", label = "Battement sous 5 s", half = true,
+        disabled = function(settings) return not settings.showTime end },
     { type = "slider", key = "fontSize", label = "Taille de police", min = 6, max = 24, step = 1 },
 }
 
@@ -245,6 +255,8 @@ local function OnUpdate(frame, elapsed)
     local remaining
     if self.durationObj then
         remaining = self.durationObj:GetRemainingDuration()
+        -- A secret value cannot be compared: no heartbeat in that case
+        self:SetPulsing(not issecret(remaining) and self:ShouldPulse(remaining))
     else
         remaining = self.expirationTime - GetTime()
         if remaining <= 0 then
@@ -254,6 +266,7 @@ local function OnUpdate(frame, elapsed)
             return
         end
         self.bar:SetValue(remaining)
+        self:SetPulsing(self:ShouldPulse(remaining))
     end
 
     self.textElapsed = self.textElapsed + elapsed
@@ -317,6 +330,28 @@ function ns.CreateTimerBar(settings)
     timeText:SetPoint("RIGHT", -4, 0)
     timeText:SetJustifyH("RIGHT")
     self.timeText = timeText
+
+    -- Heartbeat: a single scale animation played back and forth ("BOUNCE"), so
+    -- the start delay becomes the rest between two beats. An animation does not
+    -- change the layout, so the label anchored to the time text does not move.
+    if timeText.CreateAnimationGroup then
+        local pulse = timeText:CreateAnimationGroup()
+        pulse:SetLooping("BOUNCE")
+        local scale = pulse:CreateAnimation("Scale")
+        local setFrom = scale.SetScaleFrom or scale.SetFromScale
+        local setTo = scale.SetScaleTo or scale.SetToScale
+        if setFrom and setTo then
+            setFrom(scale, 1, 1)
+            setTo(scale, PULSE_SCALE, PULSE_SCALE)
+        else
+            scale:SetScale(PULSE_SCALE, PULSE_SCALE)
+        end
+        scale:SetOrigin("CENTER", 0, 0)
+        scale:SetDuration(PULSE_BEAT)
+        scale:SetStartDelay(PULSE_REST / 2)
+        scale:SetSmoothing("IN_OUT")
+        self.pulse = pulse
+    end
 
     local label = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetWordWrap(false)
@@ -419,7 +454,20 @@ function TimerBar:SetSparkActive(active)
     self.spark:SetShown(active and self.settings.showSpark)
 end
 
+function TimerBar:ShouldPulse(remaining)
+    local s = self.settings
+    return s.timePulse and s.showTime and remaining < PULSE_THRESHOLD
+end
+
+function TimerBar:SetPulsing(pulsing)
+    pulsing = pulsing and true or false
+    if pulsing == self.pulsing or not self.pulse then return end
+    self.pulsing = pulsing
+    if pulsing then self.pulse:Play() else self.pulse:Stop() end
+end
+
 function TimerBar:StopAnimation()
+    self:SetPulsing(false)
     if self.durationObj and self.bar.ClearTimerDuration then
         self.bar:ClearTimerDuration()
     end
