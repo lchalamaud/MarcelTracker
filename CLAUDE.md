@@ -25,6 +25,8 @@ Conséquences pour le code :
 - `MarcelTracker.toc` : métadonnées et liste des fichiers chargés, dans l'ordre. Tout nouveau fichier `.lua` doit y être ajouté.
 - `MarcelTracker.lua` : point d'entrée (frame d'événements, `ADDON_LOADED`, slash commands).
 - `Widgets/TimerBar.lua` : barre de durée réutilisable. Elle lit son apparence dans une table de réglages (`ns.TimerBarDefaults`) et la réapplique avec `bar:ApplySettings()`.
+- `Widgets/AlertIcon.lua` : icône d'alerte réutilisable (icône + texte centré, animation de secousse), pour signaler quelque chose qui manque. Réglages dans `ns.AlertIconDefaults`, réappliqués avec `icon:ApplySettings()`.
+- `Widgets/Movable.lua` : position sauvegardée, déplacement à la souris et surbrillance de déverrouillage, partagés par les widgets (`ns.Movable`, à copier dans la classe du widget). Chargé avant les autres widgets.
 - `Config/Controls.lua` : fabriques de contrôles de la page de config, une par type d'option (`toggle`, `slider`, `select`, `color`, `position`, `button`, `header`).
 - `Config/Window.lua` : fenêtre de config autonome (`/marcel config`), construite à partir des options déclarées par les trackers, plus un simple bouton dans Options > AddOns. Aucune logique dans le panneau Blizzard (taint).
 - `design/` : maquettes des textures de barre (`index.html` + PNG), produites par `tools/generate_designs.py`. Non chargé par le jeu.
