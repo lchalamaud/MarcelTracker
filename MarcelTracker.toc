@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: MarcelTracker
+## Notes: Aide à l'interface pour WoW Forever
+## Author: Louis Chalamaud
+## Version: 0.1.0
+## SavedVariables: MarcelTrackerDB
+
+MarcelTracker.lua
