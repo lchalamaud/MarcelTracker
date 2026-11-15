@@ -16,6 +16,13 @@ local addonName, ns = ...
 local SPARK_TEXTURE = "Interface\\CastingBar\\UI-CastingBar-Spark"
 local TEXT_UPDATE_INTERVAL = 0.1
 
+-- Heartbeat of the time text when the timer is about to run out: it grows
+-- then shrinks back, continuously, and turns orange to stand out.
+local PULSE_THRESHOLD = 5 -- seconds left
+local PULSE_SCALE = 1.1
+local PULSE_HALF = 0.27   -- duration of the growth (and of the shrinking)
+local PULSE_COLOR = { 1, 0.7, 0.1 }
+
 -- Built-in textures only (no LibSharedMedia). Keys are what gets saved.
 local TEXTURES = {
     blizzard = "Interface\\TargetingFrame\\UI-StatusBar",
@@ -76,6 +83,9 @@ ns.TimerBarDefaults = {
     fontSize = 10,
     labelAlign = "CENTER",
     textOutline = true,
+    fadeIn = 200, -- milliseconds, 0 = no fade
+    fadeOut = 300,
+    timePulse = true,
 }
 
 -- Option descriptors for the config page (see Config/Controls.lua), to be
@@ -113,6 +123,8 @@ ns.TimerBarOptions = {
     } },
     { type = "toggle", key = "showSpark", label = "Étincelle", half = true },
     { type = "slider", key = "alpha", label = "Opacité (%)", min = 0.1, max = 1, step = 0.05, percent = true },
+    { type = "slider", key = "fadeIn", label = "Fondu entrant (ms)", min = 0, max = 2000, step = 50 },
+    { type = "slider", key = "fadeOut", label = "Fondu sortant (ms)", min = 0, max = 2000, step = 50 },
 
     { type = "header", label = "Textes" },
     { type = "toggle", key = "showIcon", label = "Icône", half = true },
@@ -123,6 +135,8 @@ ns.TimerBarOptions = {
         { "LEFT", "À gauche" },
     } },
     { type = "toggle", key = "textOutline", label = "Contour noir fin", half = true },
+    { type = "toggle", key = "timePulse", label = "Battement sous 5 s", half = true,
+        disabled = function(settings) return not settings.showTime end },
     { type = "slider", key = "fontSize", label = "Taille de police", min = 6, max = 24, step = 1 },
 }
 
@@ -218,19 +232,41 @@ end
 local TimerBar = {}
 TimerBar.__index = TimerBar
 
+-- Runs while the bar is fading and/or its timer is running (see UpdateScript).
 local function OnUpdate(frame, elapsed)
     local self = frame.owner
+
+    if self.fadeTo then
+        local alpha = self.fadeAlpha
+        if self.fadeTo > alpha then
+            alpha = math.min(alpha + elapsed * self.fadeSpeed, 1)
+        else
+            alpha = math.max(alpha - elapsed * self.fadeSpeed, 0)
+        end
+        self:SetFadeAlpha(alpha)
+        if alpha == self.fadeTo then
+            self.fadeTo = nil
+            if alpha == 0 then frame:Hide() end
+            self:UpdateScript()
+        end
+    end
+    if not self:IsRunning() or not frame:IsShown() then return end
+
     local remaining
     if self.durationObj then
         remaining = self.durationObj:GetRemainingDuration()
+        -- A secret value cannot be compared: no heartbeat in that case
+        self:SetPulsing(not issecret(remaining) and self:ShouldPulse(remaining))
     else
         remaining = self.expirationTime - GetTime()
         if remaining <= 0 then
+            self.bar:SetValue(0)
             self:StopAnimation()
             if self.onExpire then self.onExpire() else self:Hide() end
             return
         end
         self.bar:SetValue(remaining)
+        self:SetPulsing(self:ShouldPulse(remaining))
     end
 
     self.textElapsed = self.textElapsed + elapsed
@@ -244,18 +280,23 @@ end
 function ns.CreateTimerBar(settings)
     local self = setmetatable({ settings = settings }, TimerBar)
 
-    -- The anchor carries position, size, scale, opacity and dragging. It stays
-    -- shown unless the bar is suppressed, so that hiding it also pauses the
-    -- OnUpdate of the content frame below.
+    -- The anchor carries position, size, scale, opacity and dragging, and is
+    -- always shown.
     local anchor = CreateFrame("Frame", nil, UIParent)
     anchor:SetClampedToScreen(true)
     anchor:SetPoint("CENTER")
     self.anchor = anchor
 
-    -- The content frame is shown only while there is something to display.
+    -- The content frame is shown only while there is something to display and
+    -- the bar is not suppressed (plus the time of its fade out). Its own alpha
+    -- is the fade, multiplied by the engine with the opacity of the anchor.
+    -- Hiding it also pauses its OnUpdate.
     local frame = CreateFrame("Frame", nil, anchor)
     frame:SetAllPoints()
+    frame:SetAlpha(0)
     frame:Hide()
+    self.fadeAlpha = 0
+    self.active, self.suppressed, self.visible = false, false, false
     frame.owner = self
     self.frame = frame
 
@@ -289,6 +330,29 @@ function ns.CreateTimerBar(settings)
     timeText:SetPoint("RIGHT", -4, 0)
     timeText:SetJustifyH("RIGHT")
     self.timeText = timeText
+
+    -- Heartbeat: a single scale animation played back and forth ("BOUNCE"),
+    -- eased at both ends. No delay: while an animation waits it is not applied,
+    -- so on the way back the text would snap to its normal size and jump. An
+    -- animation does not change the layout, so the label anchored to the time
+    -- text does not move.
+    if timeText.CreateAnimationGroup then
+        local pulse = timeText:CreateAnimationGroup()
+        pulse:SetLooping("BOUNCE")
+        local scale = pulse:CreateAnimation("Scale")
+        local setFrom = scale.SetScaleFrom or scale.SetFromScale
+        local setTo = scale.SetScaleTo or scale.SetToScale
+        if setFrom and setTo then
+            setFrom(scale, 1, 1)
+            setTo(scale, PULSE_SCALE, PULSE_SCALE)
+        else
+            scale:SetScale(PULSE_SCALE, PULSE_SCALE)
+        end
+        scale:SetOrigin("CENTER", 0, 0)
+        scale:SetDuration(PULSE_HALF)
+        scale:SetSmoothing("IN_OUT")
+        self.pulse = pulse
+    end
 
     local label = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetWordWrap(false)
@@ -391,13 +455,69 @@ function TimerBar:SetSparkActive(active)
     self.spark:SetShown(active and self.settings.showSpark)
 end
 
+function TimerBar:ShouldPulse(remaining)
+    local s = self.settings
+    return s.timePulse and s.showTime and remaining < PULSE_THRESHOLD
+end
+
+function TimerBar:SetPulsing(pulsing)
+    pulsing = pulsing and true or false
+    if pulsing == self.pulsing then return end
+    self.pulsing = pulsing
+    if pulsing then
+        self.timeText:SetTextColor(unpack(PULSE_COLOR))
+    else
+        self.timeText:SetTextColor(1, 1, 1)
+    end
+    if not self.pulse then return end
+    if pulsing then self.pulse:Play() else self.pulse:Stop() end
+end
+
 function TimerBar:StopAnimation()
-    self.frame:SetScript("OnUpdate", nil)
+    self:SetPulsing(false)
     if self.durationObj and self.bar.ClearTimerDuration then
         self.bar:ClearTimerDuration()
     end
     self.durationObj = nil
     self.expirationTime = nil
+    self:UpdateScript()
+end
+
+-- OnUpdate is only needed while something moves: a timer or a fade.
+function TimerBar:UpdateScript()
+    local needed = self.fadeTo ~= nil or self:IsRunning()
+    self.frame:SetScript("OnUpdate", needed and OnUpdate or nil)
+end
+
+function TimerBar:SetFadeAlpha(alpha)
+    self.fadeAlpha = alpha
+    self.frame:SetAlpha(alpha)
+end
+
+-- The bar is visible when it has something to display (`active`) and is not
+-- suppressed. Any change of that state fades the content frame in or out,
+-- starting from its current alpha so that a fade can be reversed midway.
+function TimerBar:UpdateVisibility()
+    local visible = self.active and not self.suppressed
+    if visible == self.visible then return end
+    self.visible = visible
+
+    local duration = (visible and self.settings.fadeIn or self.settings.fadeOut) / 1000
+    if duration > 0 then
+        self.fadeTo = visible and 1 or 0
+        self.fadeSpeed = 1 / duration
+        if visible then self.frame:Show() end
+    else
+        self.fadeTo = nil
+        self:SetFadeAlpha(visible and 1 or 0)
+        self.frame:SetShown(visible)
+    end
+    self:UpdateScript()
+end
+
+function TimerBar:SetActive(active)
+    self.active = active
+    self:UpdateVisibility()
 end
 
 -- Show a static full bar (preview, permanent aura, or unreadable timer).
@@ -407,7 +527,7 @@ function TimerBar:ShowStatic(timeText)
     self.bar:SetValue(1)
     self:SetSparkActive(false)
     self.timeText:SetText(timeText or "")
-    self.frame:Show()
+    self:SetActive(true)
 end
 
 -- Start draining the bar for an aura. `aura` is an AuraData-like table.
@@ -453,19 +573,22 @@ end
 function TimerBar:StartAnimation()
     self:SetSparkActive(true)
     self.textElapsed = TEXT_UPDATE_INTERVAL -- refresh text on first frame
-    self.frame:SetScript("OnUpdate", OnUpdate)
-    self.frame:Show()
+    self:SetActive(true)
+    self:UpdateScript()
 end
 
+-- Nothing to display any more: the bar freezes where it is and fades out.
 function TimerBar:Hide()
     self:StopAnimation()
-    self.frame:Hide()
+    self:SetSparkActive(false)
+    self:SetActive(false)
 end
 
--- Hide the whole bar regardless of its timer state (e.g. "only in combat").
--- The timer keeps its state and catches up when the bar is shown again.
+-- Hide the bar regardless of its timer state (e.g. "only in combat"). The
+-- timer keeps its state and catches up when the bar is shown again.
 function TimerBar:SetSuppressed(suppressed)
-    self.anchor:SetShown(not suppressed)
+    self.suppressed = suppressed and true or false
+    self:UpdateVisibility()
 end
 
 -- Position handling. `pos` is a saved table { point, relativePoint, x, y }
