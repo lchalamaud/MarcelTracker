@@ -76,6 +76,8 @@ ns.TimerBarDefaults = {
     fontSize = 10,
     labelAlign = "CENTER",
     textOutline = true,
+    fadeIn = 200, -- milliseconds, 0 = no fade
+    fadeOut = 300,
 }
 
 -- Option descriptors for the config page (see Config/Controls.lua), to be
@@ -113,6 +115,8 @@ ns.TimerBarOptions = {
     } },
     { type = "toggle", key = "showSpark", label = "Étincelle", half = true },
     { type = "slider", key = "alpha", label = "Opacité (%)", min = 0.1, max = 1, step = 0.05, percent = true },
+    { type = "slider", key = "fadeIn", label = "Fondu entrant (ms)", min = 0, max = 2000, step = 50 },
+    { type = "slider", key = "fadeOut", label = "Fondu sortant (ms)", min = 0, max = 2000, step = 50 },
 
     { type = "header", label = "Textes" },
     { type = "toggle", key = "showIcon", label = "Icône", half = true },
@@ -218,14 +222,33 @@ end
 local TimerBar = {}
 TimerBar.__index = TimerBar
 
+-- Runs while the bar is fading and/or its timer is running (see UpdateScript).
 local function OnUpdate(frame, elapsed)
     local self = frame.owner
+
+    if self.fadeTo then
+        local alpha = self.fadeAlpha
+        if self.fadeTo > alpha then
+            alpha = math.min(alpha + elapsed * self.fadeSpeed, 1)
+        else
+            alpha = math.max(alpha - elapsed * self.fadeSpeed, 0)
+        end
+        self:SetFadeAlpha(alpha)
+        if alpha == self.fadeTo then
+            self.fadeTo = nil
+            if alpha == 0 then frame:Hide() end
+            self:UpdateScript()
+        end
+    end
+    if not self:IsRunning() or not frame:IsShown() then return end
+
     local remaining
     if self.durationObj then
         remaining = self.durationObj:GetRemainingDuration()
     else
         remaining = self.expirationTime - GetTime()
         if remaining <= 0 then
+            self.bar:SetValue(0)
             self:StopAnimation()
             if self.onExpire then self.onExpire() else self:Hide() end
             return
@@ -244,18 +267,23 @@ end
 function ns.CreateTimerBar(settings)
     local self = setmetatable({ settings = settings }, TimerBar)
 
-    -- The anchor carries position, size, scale, opacity and dragging. It stays
-    -- shown unless the bar is suppressed, so that hiding it also pauses the
-    -- OnUpdate of the content frame below.
+    -- The anchor carries position, size, scale, opacity and dragging, and is
+    -- always shown.
     local anchor = CreateFrame("Frame", nil, UIParent)
     anchor:SetClampedToScreen(true)
     anchor:SetPoint("CENTER")
     self.anchor = anchor
 
-    -- The content frame is shown only while there is something to display.
+    -- The content frame is shown only while there is something to display and
+    -- the bar is not suppressed (plus the time of its fade out). Its own alpha
+    -- is the fade, multiplied by the engine with the opacity of the anchor.
+    -- Hiding it also pauses its OnUpdate.
     local frame = CreateFrame("Frame", nil, anchor)
     frame:SetAllPoints()
+    frame:SetAlpha(0)
     frame:Hide()
+    self.fadeAlpha = 0
+    self.active, self.suppressed, self.visible = false, false, false
     frame.owner = self
     self.frame = frame
 
@@ -392,12 +420,49 @@ function TimerBar:SetSparkActive(active)
 end
 
 function TimerBar:StopAnimation()
-    self.frame:SetScript("OnUpdate", nil)
     if self.durationObj and self.bar.ClearTimerDuration then
         self.bar:ClearTimerDuration()
     end
     self.durationObj = nil
     self.expirationTime = nil
+    self:UpdateScript()
+end
+
+-- OnUpdate is only needed while something moves: a timer or a fade.
+function TimerBar:UpdateScript()
+    local needed = self.fadeTo ~= nil or self:IsRunning()
+    self.frame:SetScript("OnUpdate", needed and OnUpdate or nil)
+end
+
+function TimerBar:SetFadeAlpha(alpha)
+    self.fadeAlpha = alpha
+    self.frame:SetAlpha(alpha)
+end
+
+-- The bar is visible when it has something to display (`active`) and is not
+-- suppressed. Any change of that state fades the content frame in or out,
+-- starting from its current alpha so that a fade can be reversed midway.
+function TimerBar:UpdateVisibility()
+    local visible = self.active and not self.suppressed
+    if visible == self.visible then return end
+    self.visible = visible
+
+    local duration = (visible and self.settings.fadeIn or self.settings.fadeOut) / 1000
+    if duration > 0 then
+        self.fadeTo = visible and 1 or 0
+        self.fadeSpeed = 1 / duration
+        if visible then self.frame:Show() end
+    else
+        self.fadeTo = nil
+        self:SetFadeAlpha(visible and 1 or 0)
+        self.frame:SetShown(visible)
+    end
+    self:UpdateScript()
+end
+
+function TimerBar:SetActive(active)
+    self.active = active
+    self:UpdateVisibility()
 end
 
 -- Show a static full bar (preview, permanent aura, or unreadable timer).
@@ -407,7 +472,7 @@ function TimerBar:ShowStatic(timeText)
     self.bar:SetValue(1)
     self:SetSparkActive(false)
     self.timeText:SetText(timeText or "")
-    self.frame:Show()
+    self:SetActive(true)
 end
 
 -- Start draining the bar for an aura. `aura` is an AuraData-like table.
@@ -453,19 +518,22 @@ end
 function TimerBar:StartAnimation()
     self:SetSparkActive(true)
     self.textElapsed = TEXT_UPDATE_INTERVAL -- refresh text on first frame
-    self.frame:SetScript("OnUpdate", OnUpdate)
-    self.frame:Show()
+    self:SetActive(true)
+    self:UpdateScript()
 end
 
+-- Nothing to display any more: the bar freezes where it is and fades out.
 function TimerBar:Hide()
     self:StopAnimation()
-    self.frame:Hide()
+    self:SetSparkActive(false)
+    self:SetActive(false)
 end
 
--- Hide the whole bar regardless of its timer state (e.g. "only in combat").
--- The timer keeps its state and catches up when the bar is shown again.
+-- Hide the bar regardless of its timer state (e.g. "only in combat"). The
+-- timer keeps its state and catches up when the bar is shown again.
 function TimerBar:SetSuppressed(suppressed)
-    self.anchor:SetShown(not suppressed)
+    self.suppressed = suppressed and true or false
+    self:UpdateVisibility()
 end
 
 -- Position handling. `pos` is a saved table { point, relativePoint, x, y }
