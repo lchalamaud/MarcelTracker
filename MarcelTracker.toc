@@ -8,8 +8,10 @@
 MarcelTracker.lua
 Widgets\Movable.lua
 Widgets\TimerBar.lua
+Widgets\IconGroup.lua
 Widgets\AlertIcon.lua
 Config\Controls.lua
 Config\Window.lua
 Trackers\PaladinSeal.lua
 Trackers\PaladinAura.lua
+Trackers\PaladinBlessing.lua

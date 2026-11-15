@@ -7,6 +7,10 @@ local addonName, ns = ...
 -- Appearance is driven by a settings table (see ns.AlertIconDefaults), usually
 -- a sub-table of SavedVariables. The icon keeps a reference to it: change a
 -- value, then call icon:ApplySettings() to see it live.
+--
+-- An icon is either standalone (it carries its own saved position, see
+-- Widgets/Movable.lua) or a member of an icon group (Widgets/IconGroup.lua),
+-- which then places it and is what gets moved.
 
 local BORDER = 1          -- black frame around the icon
 local ICON_CROP = 0.07    -- hides the built-in border of Blizzard icons
@@ -43,14 +47,18 @@ for name, method in pairs(ns.Movable) do
     AlertIcon[name] = method
 end
 
-function ns.CreateAlertIcon(settings)
-    local self = setmetatable({ settings = settings }, AlertIcon)
+-- `group` is optional: an icon group (see Widgets/IconGroup.lua) that places
+-- the icon next to its other members.
+function ns.CreateAlertIcon(settings, group)
+    local self = setmetatable({ settings = settings, group = group }, AlertIcon)
 
     -- The anchor carries position, size, opacity and dragging, and is always
     -- shown (it draws nothing by itself).
-    local anchor = CreateFrame("Frame", nil, UIParent)
-    anchor:SetClampedToScreen(true)
-    anchor:SetPoint("CENTER")
+    local anchor = CreateFrame("Frame", nil, group and group.anchor or UIParent)
+    if not group then
+        anchor:SetClampedToScreen(true)
+        anchor:SetPoint("CENTER")
+    end
     self.anchor = anchor
 
     -- The content frame is what is shown, hidden and shaken, so that the
@@ -96,6 +104,7 @@ function ns.CreateAlertIcon(settings)
     self.moveHighlight = ns.CreateMoveHighlight(anchor)
 
     self:ApplySettings()
+    if group then group:Add(self) end
     return self
 end
 
@@ -117,6 +126,16 @@ function AlertIcon:ApplySettings()
         end
     end
     self:UpdateShake()
+    self:NotifyGroup()
+end
+
+-- A change of size or visibility moves the other members of the group.
+function AlertIcon:NotifyGroup()
+    if self.group then self.group:Layout() end
+end
+
+function AlertIcon:GetSize()
+    return self.settings.size
 end
 
 -- The shake runs only while the icon is shown. It is restarted after a change
@@ -147,4 +166,5 @@ function AlertIcon:SetShown(shown)
     if shown == self.frame:IsShown() then return end -- keep the shake running
     self.frame:SetShown(shown)
     self:UpdateShake()
+    self:NotifyGroup()
 end

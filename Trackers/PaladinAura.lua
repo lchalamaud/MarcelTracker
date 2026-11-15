@@ -13,8 +13,10 @@ local addonName, ns = ...
 -- marked as reliable the first time both agree that an aura is active. In
 -- combat the bar is trusted if it proved reliable; otherwise the last known
 -- state is kept, updated by the player's own casts and by death.
+--
+-- The icon is a member of the reminder group (Widgets/IconGroup.lua), which
+-- owns the position shared by all the reminder icons.
 
-local DEFAULT_POSITION = { "CENTER", "CENTER", 0, 120 }
 local ICON_SPELL_ID = 7294 -- Retribution Aura
 local ICON_FALLBACK = "Interface\\Icons\\Spell_Holy_AuraOfLight"
 local LABEL = "Aura"
@@ -82,13 +84,9 @@ Tracker.options = {
 for _, option in ipairs(ns.AlertIconOptions) do
     table.insert(Tracker.options, option)
 end
-table.insert(Tracker.options, { type = "header", label = "Position (depuis le centre de l'écran)" })
-table.insert(Tracker.options, { type = "position" })
-table.insert(Tracker.options, {
-    type = "button",
-    label = "Réinitialiser la position",
-    func = function(tracker) tracker:ResetPosition() end,
-})
+for _, option in ipairs(ns.ReminderGroupOptions) do
+    table.insert(Tracker.options, option)
+end
 
 function Tracker:ShouldLoad()
     local _, class = UnitClass("player")
@@ -170,13 +168,14 @@ end
 function Tracker:Init(db)
     self.db = db
     self.settings = db.settings
-    db.position = db.position or { unpack(DEFAULT_POSITION) }
 
-    self.icon = ns.CreateAlertIcon(self.settings)
+    -- db.position: where the icon was before it joined the reminder group
+    self.group = ns.GetReminderGroup(db.position)
+    db.position = nil
+
+    self.icon = ns.CreateAlertIcon(self.settings, self.group)
     self.icon:SetIcon(GetSpellTexture and GetSpellTexture(ICON_SPELL_ID) or ICON_FALLBACK)
     self.icon:SetText(LABEL)
-    self.icon.onMoved = function() ns.RefreshConfig() end
-    self.icon:AttachPosition(db.position)
 
     self.events = CreateFrame("Frame")
     self.events:SetScript("OnEvent", function(_, ...) self:OnEvent(...) end)
@@ -186,8 +185,8 @@ end
 
 function Tracker:SetUnlocked(unlocked)
     self.unlocked = unlocked
-    self.icon:SetMovable(unlocked)
     self:Refresh()
+    self.group:SetMovable(unlocked)
 end
 
 function Tracker:SetPreview(preview)
@@ -196,15 +195,15 @@ function Tracker:SetPreview(preview)
 end
 
 function Tracker:GetPosition()
-    return self.icon:GetOffset()
+    return self.group:GetOffset()
 end
 
 function Tracker:SetPosition(x, y)
-    self.icon:SetOffset(x, y)
+    self.group:SetOffset(x, y)
 end
 
 function Tracker:ResetPosition()
-    self.icon:SetOffset(DEFAULT_POSITION[3], DEFAULT_POSITION[4])
+    self.group:ResetPosition()
 end
 
 ns.RegisterTracker(Tracker)
