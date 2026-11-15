@@ -90,7 +90,7 @@ end
 local function UpdateLockButton()
     if ns.unlocked then
         window.lockButton:SetText("Verrouiller les barres")
-        window.hint:SetText("|cff33ff33Barres déverrouillées|r : glissez-les\nà la souris (cadre vert).")
+        window.hint:SetText("|cff7fd4ffBarres déverrouillées|r : glissez-les\nà la souris (cadre bleu).")
     else
         window.lockButton:SetText("Déverrouiller les barres")
         window.hint:SetText("Déverrouillez pour déplacer les barres\nà la souris.")

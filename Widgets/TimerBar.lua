@@ -142,6 +142,56 @@ for _, option in ipairs(ns.TimerBarOptions) do
     end
 end
 
+-- Highlight shown over a bar while it can be dragged, in the style of
+-- Blizzard's Edit Mode: a thin light-blue rounded border and a translucent
+-- blue veil in front of the bar.
+--
+-- Drawn from our own texture (Media/MoveHighlight.tga, a 32x32 rounded
+-- rectangle built by tools/generate_textures.py) cut in nine slices: the 8px
+-- corners keep their shape, the edges and the centre stretch.
+local HIGHLIGHT_TEXTURE = MEDIA .. "MoveHighlight.tga"
+local HIGHLIGHT_CORNER = 8  -- size of a corner slice, on screen
+local HIGHLIGHT_SLICE = 0.25 -- same, as a fraction of the texture (8 / 32)
+local HIGHLIGHT_OUTSET = 2  -- the border sits just outside of the bar
+
+local function CreateMoveHighlight(anchor)
+    local highlight = CreateFrame("Frame", nil, anchor)
+    highlight:SetPoint("TOPLEFT", -HIGHLIGHT_OUTSET, HIGHLIGHT_OUTSET)
+    highlight:SetPoint("BOTTOMRIGHT", HIGHLIGHT_OUTSET, -HIGHLIGHT_OUTSET)
+    highlight:SetFrameLevel(anchor:GetFrameLevel() + 10) -- in front of the bar
+    highlight:Hide()
+
+    local a, b = HIGHLIGHT_SLICE, 1 - HIGHLIGHT_SLICE
+    local function Piece(left, right, top, bottom)
+        local piece = highlight:CreateTexture(nil, "OVERLAY")
+        piece:SetTexture(HIGHLIGHT_TEXTURE)
+        piece:SetTexCoord(left, right, top, bottom)
+        return piece
+    end
+
+    local topLeft, topRight = Piece(0, a, 0, a), Piece(b, 1, 0, a)
+    local bottomLeft, bottomRight = Piece(0, a, b, 1), Piece(b, 1, b, 1)
+    topLeft:SetPoint("TOPLEFT")
+    topRight:SetPoint("TOPRIGHT")
+    bottomLeft:SetPoint("BOTTOMLEFT")
+    bottomRight:SetPoint("BOTTOMRIGHT")
+    for _, corner in ipairs({ topLeft, topRight, bottomLeft, bottomRight }) do
+        corner:SetSize(HIGHLIGHT_CORNER, HIGHLIGHT_CORNER)
+    end
+
+    local function Between(piece, from, fromPoint, to, toPoint)
+        piece:SetPoint("TOPLEFT", from, fromPoint)
+        piece:SetPoint("BOTTOMRIGHT", to, toPoint)
+    end
+    Between(Piece(a, b, 0, a), topLeft, "TOPRIGHT", topRight, "BOTTOMLEFT")          -- top
+    Between(Piece(a, b, b, 1), bottomLeft, "TOPRIGHT", bottomRight, "BOTTOMLEFT")    -- bottom
+    Between(Piece(0, a, a, b), topLeft, "BOTTOMLEFT", bottomLeft, "TOPRIGHT")        -- left
+    Between(Piece(b, 1, a, b), topRight, "BOTTOMLEFT", bottomRight, "TOPRIGHT")      -- right
+    Between(Piece(a, b, a, b), topLeft, "BOTTOMRIGHT", bottomRight, "TOPLEFT")       -- centre
+
+    return highlight
+end
+
 local issecret = issecretvalue or function() return false end
 local GetAuraDuration = C_UnitAuras and C_UnitAuras.GetAuraDuration
 local TimerDirection = Enum and Enum.StatusBarTimerDirection
@@ -202,21 +252,6 @@ function ns.CreateTimerBar(settings)
     anchor:SetPoint("CENTER")
     self.anchor = anchor
 
-    -- Green frame around the bar while it can be dragged
-    self.moveBorder = {}
-    local function AddEdge(point1, x1, y1, point2, x2, y2)
-        local edge = anchor:CreateTexture(nil, "OVERLAY")
-        edge:SetColorTexture(0.2, 1, 0.2, 1)
-        edge:SetPoint("TOPLEFT", anchor, point1, x1, y1)
-        edge:SetPoint("BOTTOMRIGHT", anchor, point2, x2, y2)
-        edge:Hide()
-        table.insert(self.moveBorder, edge)
-    end
-    AddEdge("TOPLEFT", -4, 4, "TOPRIGHT", 4, 2)
-    AddEdge("BOTTOMLEFT", -4, -2, "BOTTOMRIGHT", 4, -4)
-    AddEdge("TOPLEFT", -4, 4, "BOTTOMLEFT", -2, -4)
-    AddEdge("TOPRIGHT", 2, 4, "BOTTOMRIGHT", 4, -4)
-
     -- The content frame is shown only while there is something to display.
     local frame = CreateFrame("Frame", nil, anchor)
     frame:SetAllPoints()
@@ -261,6 +296,9 @@ function ns.CreateTimerBar(settings)
 
     local fontFile, _, fontFlags = label:GetFont()
     self.fontFile, self.fontFlags = fontFile, fontFlags
+
+    -- Created last, so that it is drawn in front of everything else
+    self.moveHighlight = CreateMoveHighlight(anchor)
 
     self:ApplySettings()
     return self
@@ -479,14 +517,12 @@ function TimerBar:SetOffset(x, y)
     self:ApplyPosition()
 end
 
--- While movable, the bar can be dragged (and shows a green frame); `onMoved` is called after each drag.
+-- While movable, the bar can be dragged (and shows an Edit Mode style highlight); `onMoved` is called after each drag.
 function TimerBar:SetMovable(movable)
     local anchor = self.anchor
     anchor:SetMovable(movable)
     anchor:EnableMouse(movable)
-    for _, edge in ipairs(self.moveBorder) do
-        edge:SetShown(movable)
-    end
+    self.moveHighlight:SetShown(movable)
     if movable then
         anchor:RegisterForDrag("LeftButton")
         anchor:SetScript("OnDragStart", anchor.StartMoving)

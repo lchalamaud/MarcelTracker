@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Builds the textures shipped in Media/ from the retained designs in design/.
+"""Builds the textures shipped in Media/: the retained designs of design/,
+and the highlight of unlocked bars.
 
 Pure standard library. Run from the addon root:
     python3 tools/generate_textures.py
@@ -80,6 +81,37 @@ def write_tga(path, width, height, rows):
             f.write(b"".join(struct.pack("BBBB", b, g, r, a) for r, g, b, a in row))
 
 
+def move_highlight(size=32, radius=5.0, border=1.6):
+    """Edit Mode style highlight: a light-blue rounded border around a
+    translucent blue veil. Meant to be cut in nine slices of size / 4."""
+    line = (140, 214, 255)   # light blue border
+    veil = (60, 150, 235)    # blue veil
+    veil_alpha = 0.32
+    half = size / 2
+    rows = []
+    for y in range(size):
+        row = []
+        for x in range(size):
+            # signed distance to the rounded rectangle (negative inside)
+            qx = abs(x + 0.5 - half) - (half - radius)
+            qy = abs(y + 0.5 - half) - (half - radius)
+            outside = (max(qx, 0) ** 2 + max(qy, 0) ** 2) ** 0.5
+            distance = outside + min(max(qx, qy), 0) - radius
+
+            shape = max(0.0, min(1.0, 0.5 - distance))           # inside the shape
+            inner = max(0.0, min(1.0, 0.5 - (distance + border)))  # inside the border
+            line_part = shape - inner
+            alpha = line_part + inner * veil_alpha
+            if alpha <= 0:
+                row.append((0, 0, 0, 0))
+                continue
+            weight = line_part / alpha
+            color = tuple(int(round(veil[i] + (line[i] - veil[i]) * weight)) for i in range(3))
+            row.append(color + (int(round(alpha * 255)),))
+        rows.append(row)
+    return size, size, rows
+
+
 def is_power_of_two(n):
     return n > 0 and n & (n - 1) == 0
 
@@ -91,3 +123,7 @@ if __name__ == "__main__":
         assert is_power_of_two(width) and is_power_of_two(height), source + ": size must be a power of two"
         write_tga(os.path.join("Media", target + ".tga"), width, height, rows)
         print("wrote Media/%s.tga (%dx%d)" % (target, width, height))
+
+    width, height, rows = move_highlight()
+    write_tga(os.path.join("Media", "MoveHighlight.tga"), width, height, rows)
+    print("wrote Media/MoveHighlight.tga (%dx%d)" % (width, height))
