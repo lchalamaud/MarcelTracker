@@ -17,10 +17,11 @@ local SPARK_TEXTURE = "Interface\\CastingBar\\UI-CastingBar-Spark"
 local TEXT_UPDATE_INTERVAL = 0.1
 
 -- Heartbeat of the time text when the timer is about to run out: it grows
--- then shrinks back, continuously.
+-- then shrinks back, continuously, and turns orange to stand out.
 local PULSE_THRESHOLD = 5 -- seconds left
 local PULSE_SCALE = 1.1
 local PULSE_HALF = 0.27   -- duration of the growth (and of the shrinking)
+local PULSE_COLOR = { 1, 0.7, 0.1 }
 
 -- Built-in textures only (no LibSharedMedia). Keys are what gets saved.
 local TEXTURES = {
@@ -461,8 +462,14 @@ end
 
 function TimerBar:SetPulsing(pulsing)
     pulsing = pulsing and true or false
-    if pulsing == self.pulsing or not self.pulse then return end
+    if pulsing == self.pulsing then return end
     self.pulsing = pulsing
+    if pulsing then
+        self.timeText:SetTextColor(unpack(PULSE_COLOR))
+    else
+        self.timeText:SetTextColor(1, 1, 1)
+    end
+    if not self.pulse then return end
     if pulsing then self.pulse:Play() else self.pulse:Stop() end
 end
 
