@@ -3,15 +3,22 @@ local addonName, ns = ...
 -- Paladin seal tracker: a draining bar showing the active seal, its name and
 -- the time left on it.
 --
--- Seals are identified by spell ID so lookups keep working when aura fields are
--- secret (in combat). Known vanilla ranks are listed below; any other seal
--- (unknown rank, client-specific seal) is recognised by its name when auras are
--- readable, then its spell ID is remembered in SavedVariables.
+-- Two modes, depending on whether the client lets us read auras:
+--   * Auras readable (out of combat): the player's buffs are the source of
+--     truth. The active seal is found by spell ID or by name, and its spell ID
+--     and duration are remembered in SavedVariables.
+--   * Auras secret (in combat, Midnight restrictions): any aura read from addon
+--     code raises an error, so auras are not touched at all. The bar is driven
+--     by the player's own casts instead (UNIT_SPELLCAST_SUCCEEDED, readable):
+--     casting a seal starts a timer with the remembered duration, casting
+--     Judgement consumes the seal. Leaving combat resyncs from the auras.
 
 local BAR_WIDTH, BAR_HEIGHT = 220, 22
 local DEFAULT_POSITION = { "CENTER", "CENTER", 0, 0 }
+local DEFAULT_SEAL_DURATION = 30
 
 local SEAL_NAME_PATTERNS = { "^Sceau ", "^Seal of " }
+local JUDGEMENT_NAME_PATTERNS = { "^Jugement", "^Judgement" }
 
 local KNOWN_SEAL_IDS = {
     -- Seal of Righteousness
@@ -29,6 +36,7 @@ local KNOWN_SEAL_IDS = {
 }
 
 local issecret = issecretvalue or function() return false end
+local AurasAreSecret = C_Secrets and C_Secrets.ShouldAurasBeSecret or function() return false end
 local GetPlayerAuraBySpellID = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
 local GetAuraDataByIndex = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
 
@@ -42,15 +50,16 @@ local function GetSpellNameAndIcon(spellID)
     end
 end
 
-local function IsSealName(name)
+local function MatchesAny(name, patterns)
     if issecret(name) or type(name) ~= "string" then return false end
-    for _, pattern in ipairs(SEAL_NAME_PATTERNS) do
+    for _, pattern in ipairs(patterns) do
         if name:find(pattern) then return true end
     end
     return false
 end
 
 -- Returns the i-th player buff as an AuraData-like table, or nil.
+-- Only call when auras are readable.
 local function GetPlayerBuff(index)
     if GetAuraDataByIndex then
         return GetAuraDataByIndex("player", index, "HELPFUL")
@@ -73,9 +82,8 @@ function Tracker:LearnSeal(spellID)
     self.db.learnedSealIds[spellID] = true
 end
 
--- Returns spellID, aura of the active seal, or nil.
+-- Returns spellID, aura of the active seal, or nil. Only call when auras are readable.
 function Tracker:FindActiveSeal()
-    -- Direct lookup by spell ID: works even when aura fields are secret.
     if GetPlayerAuraBySpellID then
         for spellID in pairs(self.sealIds) do
             local aura = GetPlayerAuraBySpellID(spellID)
@@ -91,7 +99,7 @@ function Tracker:FindActiveSeal()
         if spellID and not issecret(spellID) then
             if self.sealIds[spellID] then
                 return spellID, aura
-            elseif IsSealName(aura.name) then
+            elseif MatchesAny(aura.name, SEAL_NAME_PATTERNS) then
                 self:LearnSeal(spellID)
                 return spellID, aura
             end
@@ -99,14 +107,14 @@ function Tracker:FindActiveSeal()
     end
 end
 
-function Tracker:Update()
-    local spellID, aura = self:FindActiveSeal()
-    if spellID then
-        local name, icon = GetSpellNameAndIcon(spellID)
-        self.bar:SetIcon(icon)
-        self.bar:SetLabel(name)
-        self.bar:ShowAura("player", aura)
-    elseif self.unlocked then
+function Tracker:ShowSealInfo(spellID)
+    local name, icon = GetSpellNameAndIcon(spellID)
+    self.bar:SetIcon(icon)
+    self.bar:SetLabel(name)
+end
+
+function Tracker:ShowIdle()
+    if self.unlocked then
         self.bar:SetIcon(nil)
         self.bar:SetLabel("Sceau (déplacez-moi)")
         self.bar:ShowStatic("30")
@@ -115,16 +123,52 @@ function Tracker:Update()
     end
 end
 
-function Tracker:OnEvent(event, unit, _, spellID)
-    if event == "UNIT_SPELLCAST_SUCCEEDED" then
-        -- Learn seals we did not know as soon as they are cast.
-        if issecret(spellID) or self.sealIds[spellID] then return end
-        if IsSealName((GetSpellNameAndIcon(spellID))) then
-            self:LearnSeal(spellID)
-            self:Update()
+-- Full resync from the player's auras. No-op while auras are secret: the bar
+-- then keeps the state set by the cast events.
+function Tracker:SyncFromAuras()
+    if AurasAreSecret() then return end
+
+    local spellID, aura = self:FindActiveSeal()
+    if not spellID then
+        self:ShowIdle()
+        return
+    end
+
+    local duration = aura.duration
+    if duration and not issecret(duration) and duration > 0 then
+        self.db.sealDurations[spellID] = duration
+    end
+    self:ShowSealInfo(spellID)
+    self.bar:ShowAura("player", aura)
+end
+
+function Tracker:OnSpellCast(spellID)
+    if not spellID or issecret(spellID) then return end
+    local name = GetSpellNameAndIcon(spellID)
+
+    if self.sealIds[spellID] or MatchesAny(name, SEAL_NAME_PATTERNS) then
+        self:LearnSeal(spellID)
+        if AurasAreSecret() then
+            local duration = self.db.sealDurations[spellID] or DEFAULT_SEAL_DURATION
+            self:ShowSealInfo(spellID)
+            self.bar:ShowTimer(duration, GetTime() + duration)
+        else
+            self:SyncFromAuras()
         end
+    elseif AurasAreSecret() and MatchesAny(name, JUDGEMENT_NAME_PATTERNS) then
+        -- Judgement consumes the active seal. When auras are readable,
+        -- UNIT_AURA reports the removal by itself.
+        self:ShowIdle()
+    end
+end
+
+function Tracker:OnEvent(event, ...)
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local _, _, spellID = ...
+        self:OnSpellCast(spellID)
     else
-        self:Update()
+        -- UNIT_AURA, PLAYER_REGEN_ENABLED, PLAYER_ENTERING_WORLD
+        self:SyncFromAuras()
     end
 end
 
@@ -132,6 +176,7 @@ function Tracker:Init(db)
     self.db = db
     db.position = db.position or { unpack(DEFAULT_POSITION) }
     db.learnedSealIds = db.learnedSealIds or {}
+    db.sealDurations = db.sealDurations or {}
 
     self.sealIds = {}
     for _, spellID in ipairs(KNOWN_SEAL_IDS) do
@@ -142,6 +187,7 @@ function Tracker:Init(db)
     end
 
     self.bar = ns.CreateTimerBar(BAR_WIDTH, BAR_HEIGHT)
+    self.bar.onExpire = function() self:ShowIdle() end
     local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS.PALADIN
     if color then self.bar:SetColor(color.r, color.g, color.b) end
     self.bar:ApplyPosition(db.position)
@@ -150,15 +196,20 @@ function Tracker:Init(db)
     events:SetScript("OnEvent", function(_, ...) self:OnEvent(...) end)
     events:RegisterUnitEvent("UNIT_AURA", "player")
     events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    events:RegisterEvent("PLAYER_REGEN_ENABLED")
     events:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-    self:Update()
+    self:SyncFromAuras()
 end
 
 function Tracker:SetUnlocked(unlocked)
     self.unlocked = unlocked
     self.bar:SetMovable(unlocked, self.db.position)
-    self:Update()
+    if not AurasAreSecret() then
+        self:SyncFromAuras()
+    elseif not self.bar:IsRunning() then
+        self:ShowIdle()
+    end
 end
 
 function Tracker:ResetPosition()

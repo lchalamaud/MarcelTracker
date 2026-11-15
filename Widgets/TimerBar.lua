@@ -2,12 +2,12 @@ local addonName, ns = ...
 
 -- Reusable timer bar: [icon][ label (center) ... time (right) ], draining left.
 --
--- On this client aura fields may be "secret values" while in combat (Midnight
--- restrictions): they cannot be compared or used in arithmetic from addon code.
--- So when the client offers a native duration object (C_UnitAuras.GetAuraDuration
--- + StatusBar:SetTimerDuration), the bar is animated by the engine itself and
--- the remaining time is only formatted, never compared. Otherwise we fall back
--- to computing the remaining time from expirationTime in OnUpdate.
+-- Readable values (duration/expirationTime): the bar is animated in OnUpdate
+-- and hides itself (or calls onExpire) when the timer reaches zero.
+-- Secret aura values (Midnight restrictions): they cannot be compared or used in
+-- arithmetic from addon code, so if the client offers a native duration object
+-- (C_UnitAuras.GetAuraDuration + StatusBar:SetTimerDuration) the engine drives
+-- the bar and the remaining time is only formatted, never compared.
 
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 local SPARK_TEXTURE = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -42,7 +42,11 @@ local function OnUpdate(frame, elapsed)
         remaining = self.durationObj:GetRemainingDuration()
     else
         remaining = self.expirationTime - GetTime()
-        if remaining < 0 then remaining = 0 end
+        if remaining <= 0 then
+            self:StopAnimation()
+            if self.onExpire then self.onExpire() else self:Hide() end
+            return
+        end
         self.bar:SetValue(remaining)
     end
 
@@ -146,27 +150,45 @@ end
 
 -- Start draining the bar for an aura. `aura` is an AuraData-like table.
 function TimerBar:ShowAura(unit, aura)
-    self:StopAnimation()
+    local duration, expirationTime = aura.duration, aura.expirationTime
+    if not issecret(duration) and not issecret(expirationTime) then
+        if duration and duration > 0 then
+            self:ShowTimer(duration, expirationTime)
+        else
+            self:ShowStatic("") -- permanent aura
+        end
+        return
+    end
 
-    -- Native path: the engine drives the bar, works with secret values.
+    -- Secret values: let the engine drive the bar from a duration object.
+    self:StopAnimation()
     if GetAuraDuration and self.bar.SetTimerDuration and TimerDirection and aura.auraInstanceID then
         local durationObj = GetAuraDuration(unit, aura.auraInstanceID)
         if durationObj then
             self.durationObj = durationObj
             self.bar:SetTimerDuration(durationObj, Interpolation and Interpolation.Immediate, TimerDirection.RemainingTime)
-        end
-    end
-
-    if not self.durationObj then
-        local duration, expirationTime = aura.duration, aura.expirationTime
-        if issecret(duration) or issecret(expirationTime) or not duration or duration <= 0 then
-            self:ShowStatic("")
+            self:StartAnimation()
             return
         end
-        self.expirationTime = expirationTime
-        self.bar:SetMinMaxValues(0, duration)
     end
+    self:ShowStatic("")
+end
 
+function TimerBar:IsRunning()
+    return self.expirationTime ~= nil or self.durationObj ~= nil
+end
+
+-- Start draining the bar from known, readable values (no aura needed).
+-- When it reaches zero, `onExpire` is called (or the bar is hidden).
+function TimerBar:ShowTimer(duration, expirationTime)
+    self:StopAnimation()
+    self.expirationTime = expirationTime
+    self.bar:SetMinMaxValues(0, duration)
+    self.bar:SetValue(expirationTime - GetTime())
+    self:StartAnimation()
+end
+
+function TimerBar:StartAnimation()
     self.spark:Show()
     self.textElapsed = TEXT_UPDATE_INTERVAL -- refresh text on first frame
     self.frame:SetScript("OnUpdate", OnUpdate)
