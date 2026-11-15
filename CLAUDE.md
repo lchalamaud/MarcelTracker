@@ -24,7 +24,13 @@ Conséquences pour le code :
 
 - `MarcelTracker.toc` : métadonnées et liste des fichiers chargés, dans l'ordre. Tout nouveau fichier `.lua` doit y être ajouté.
 - `MarcelTracker.lua` : point d'entrée (frame d'événements, `ADDON_LOADED`, slash commands).
-- Namespace partagé entre fichiers via `local addonName, ns = ...` ; aucune globale hormis `MarcelTrackerDB` (SavedVariables) et `SLASH_*` / `SlashCmdList`.
+- `Widgets/TimerBar.lua` : barre de durée réutilisable. Elle lit son apparence dans une table de réglages (`ns.TimerBarDefaults`) et la réapplique avec `bar:ApplySettings()`.
+- `Config/Controls.lua` : fabriques de contrôles de la page de config, une par type d'option (`toggle`, `slider`, `select`, `color`, `position`, `button`, `header`).
+- `Config/Window.lua` : fenêtre de config autonome (`/marcel config`), construite à partir des options déclarées par les trackers, plus un simple bouton dans Options > AddOns. Aucune logique dans le panneau Blizzard (taint).
+- `design/` : maquettes des textures de barre (`index.html` + PNG), produites par `tools/generate_designs.py`. Non chargé par le jeu.
+- `Media/` : textures chargées par le jeu (`.tga`), converties depuis `design/` par `python3 tools/generate_textures.py`. Ne pas les éditer à la main.
+- `Trackers/*.lua` : un fichier par tracker, enregistré via `ns.RegisterTracker`. Pour apparaître dans la config, un tracker déclare `name`, `defaults`, `options` et `ApplySettings(key)` ; ses réglages vivent dans `MarcelTrackerDB[key].settings`.
+- Namespace partagé entre fichiers via `local addonName, ns = ...` ; aucune globale hormis `MarcelTrackerDB` (SavedVariables), `SLASH_*` / `SlashCmdList` et `MarcelTrackerConfigFrame` (nom de frame requis par `UISpecialFrames` pour fermer avec Échap).
 
 ## Commandes en jeu
 

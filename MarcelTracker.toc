@@ -7,4 +7,6 @@
 
 MarcelTracker.lua
 Widgets\TimerBar.lua
+Config\Controls.lua
+Config\Window.lua
 Trackers\PaladinSeal.lua

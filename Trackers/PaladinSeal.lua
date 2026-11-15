@@ -13,9 +13,10 @@ local addonName, ns = ...
 --     casting a seal starts a timer with the remembered duration (on Forever,
 --     Judgement does not consume the seal). Leaving combat resyncs from the auras.
 
-local BAR_WIDTH, BAR_HEIGHT = 220, 22
 local DEFAULT_POSITION = { "CENTER", "CENTER", 0, 0 }
 local DEFAULT_SEAL_DURATION = 30
+local DEMO_DURATION = 10 -- length of one loop of the example bar
+local DEMO_SPELL_ID = 21084 -- Seal of Righteousness, for the example's icon
 
 local SEAL_NAME_PATTERNS = { "^Sceau ", "^Seal of " }
 
@@ -68,7 +69,32 @@ local function GetPlayerBuff(index)
     return { name = name, icon = icon, duration = duration, expirationTime = expirationTime, spellId = spellId }
 end
 
-local Tracker = { key = "paladinSeal" }
+local Tracker = { key = "paladinSeal", name = "Sceau de paladin" }
+
+-- Settings (db.settings): the tracker's own keys plus those of the timer bar.
+Tracker.defaults = { enabled = true, visibility = "always" }
+for key, value in pairs(ns.TimerBarDefaults) do
+    Tracker.defaults[key] = value
+end
+
+Tracker.options = {
+    { type = "header", label = "Général" },
+    { type = "toggle", key = "enabled", label = "Activé", half = true },
+    { type = "select", key = "visibility", label = "Affichage", half = true, values = {
+        { "always", "Toujours" },
+        { "combat", "En combat" },
+    } },
+}
+for _, option in ipairs(ns.TimerBarOptions) do
+    table.insert(Tracker.options, option)
+end
+table.insert(Tracker.options, { type = "header", label = "Position (depuis le centre de l'écran)" })
+table.insert(Tracker.options, { type = "position" })
+table.insert(Tracker.options, {
+    type = "button",
+    label = "Réinitialiser la position",
+    func = function(tracker) tracker:ResetPosition() end,
+})
 
 function Tracker:ShouldLoad()
     local _, class = UnitClass("player")
@@ -107,19 +133,29 @@ function Tracker:FindActiveSeal()
 end
 
 function Tracker:ShowSealInfo(spellID)
+    self.demo = false
     local name, icon = GetSpellNameAndIcon(spellID)
     self.bar:SetIcon(icon)
     self.bar:SetLabel(name)
 end
 
+-- No seal to show. While the config window is open or the bars are unlocked,
+-- an example bar drains and restarts in a loop (onExpire calls this again);
+-- otherwise the bar is hidden.
 function Tracker:ShowIdle()
-    if self.unlocked then
-        self.bar:SetIcon(nil)
-        self.bar:SetLabel("Sceau (déplacez-moi)")
-        self.bar:ShowStatic("30")
-    else
+    if not (self.preview or self.unlocked) then
+        self.demo = false
         self.bar:Hide()
+        return
     end
+
+    self.bar:SetLabel(self.unlocked and "Sceau (déplacez-moi)" or "Sceau (aperçu)")
+    if self.demo and self.bar:IsRunning() then return end -- let the loop run
+
+    local _, icon = GetSpellNameAndIcon(DEMO_SPELL_ID)
+    self.bar:SetIcon(icon)
+    self.demo = true
+    self.bar:ShowTimer(DEMO_DURATION, GetTime() + DEMO_DURATION)
 end
 
 -- Full resync from the player's auras. No-op while auras are secret: the bar
@@ -161,14 +197,69 @@ function Tracker:OnEvent(event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local _, _, spellID = ...
         self:OnSpellCast(spellID)
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        self.inCombat = true
+        self:UpdateVisibility()
     else
         -- UNIT_AURA, PLAYER_REGEN_ENABLED, PLAYER_ENTERING_WORLD
+        if event == "PLAYER_REGEN_ENABLED" then
+            self.inCombat = false
+            self:UpdateVisibility()
+        end
         self:SyncFromAuras()
     end
 end
 
+-- "Only in combat": the bar is hidden out of combat, except while unlocked or
+-- previewed from the config window.
+function Tracker:UpdateVisibility()
+    local combatOnly = self.settings.visibility == "combat"
+    local forced = self.unlocked or self.preview
+    self.bar:SetSuppressed(combatOnly and not self.inCombat and not forced)
+end
+
+-- Registers or unregisters the events according to the "enabled" setting, so
+-- that a disabled tracker costs nothing.
+function Tracker:UpdateEvents()
+    local events = self.events
+    if self.settings.enabled then
+        events:RegisterUnitEvent("UNIT_AURA", "player")
+        events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+        events:RegisterEvent("PLAYER_REGEN_DISABLED")
+        events:RegisterEvent("PLAYER_REGEN_ENABLED")
+        events:RegisterEvent("PLAYER_ENTERING_WORLD")
+        self.inCombat = UnitAffectingCombat("player") and true or false
+    else
+        events:UnregisterAllEvents()
+    end
+end
+
+-- Recomputes what the bar should show right now.
+function Tracker:Refresh()
+    if not self.settings.enabled then
+        self.demo = false
+        self.bar:Hide()
+    elseif not AurasAreSecret() then
+        self:SyncFromAuras()
+    elseif self.demo or not self.bar:IsRunning() then
+        -- Auras unreadable: keep a real timer started by a cast, if any
+        self:ShowIdle()
+    end
+end
+
+-- Called by the config window after it changed settings[key].
+function Tracker:ApplySettings(key)
+    self.bar:ApplySettings()
+    if key == nil or key == "enabled" then
+        self:UpdateEvents()
+        self:Refresh()
+    end
+    self:UpdateVisibility()
+end
+
 function Tracker:Init(db)
     self.db = db
+    self.settings = db.settings
     db.position = db.position or { unpack(DEFAULT_POSITION) }
     db.learnedSealIds = db.learnedSealIds or {}
     db.sealDurations = db.sealDurations or {}
@@ -181,36 +272,40 @@ function Tracker:Init(db)
         self.sealIds[spellID] = true
     end
 
-    self.bar = ns.CreateTimerBar(BAR_WIDTH, BAR_HEIGHT)
+    self.bar = ns.CreateTimerBar(self.settings)
     self.bar.onExpire = function() self:ShowIdle() end
-    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS.PALADIN
-    if color then self.bar:SetColor(color.r, color.g, color.b) end
-    self.bar:ApplyPosition(db.position)
+    self.bar.onMoved = function() ns.RefreshConfig() end
+    self.bar:AttachPosition(db.position)
 
-    local events = CreateFrame("Frame")
-    events:SetScript("OnEvent", function(_, ...) self:OnEvent(...) end)
-    events:RegisterUnitEvent("UNIT_AURA", "player")
-    events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    events:RegisterEvent("PLAYER_REGEN_ENABLED")
-    events:RegisterEvent("PLAYER_ENTERING_WORLD")
+    self.events = CreateFrame("Frame")
+    self.events:SetScript("OnEvent", function(_, ...) self:OnEvent(...) end)
 
-    self:SyncFromAuras()
+    self:ApplySettings()
 end
 
 function Tracker:SetUnlocked(unlocked)
     self.unlocked = unlocked
-    self.bar:SetMovable(unlocked, self.db.position)
-    if not AurasAreSecret() then
-        self:SyncFromAuras()
-    elseif not self.bar:IsRunning() then
-        self:ShowIdle()
-    end
+    self.bar:SetMovable(unlocked)
+    self:UpdateVisibility()
+    self:Refresh()
+end
+
+function Tracker:SetPreview(preview)
+    self.preview = preview
+    self:UpdateVisibility()
+    self:Refresh()
+end
+
+function Tracker:GetPosition()
+    return self.bar:GetOffset()
+end
+
+function Tracker:SetPosition(x, y)
+    self.bar:SetOffset(x, y)
 end
 
 function Tracker:ResetPosition()
-    local pos = self.db.position
-    pos[1], pos[2], pos[3], pos[4] = unpack(DEFAULT_POSITION)
-    self.bar:ApplyPosition(pos)
+    self.bar:SetOffset(DEFAULT_POSITION[3], DEFAULT_POSITION[4])
 end
 
 ns.RegisterTracker(Tracker)

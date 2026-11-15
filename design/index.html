@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MarcelTracker – designs de la barre paladin</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 16px 60px;
+    background: #14110f; color: #e8dfd2;
+    font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; color: #f8c4dc; }
+  h2 { font-size: 17px; margin: 0; color: #f58cba; }
+  p { margin: 4px 0 0; color: #b5a999; }
+  .intro { margin-bottom: 26px; }
+  .card {
+    border: 1px solid #3a302a; border-radius: 8px;
+    background: #1c1815; margin-bottom: 22px; overflow: hidden;
+  }
+  .card header { padding: 14px 18px 12px; }
+  .files { font: 12px Consolas, monospace; color: #8d8172; }
+
+  /* In-game-like backdrop to judge the bar on */
+  .scene {
+    padding: 22px 18px 24px;
+    background:
+      radial-gradient(ellipse at 20% 30%, rgba(92,110,70,.55), transparent 60%),
+      radial-gradient(ellipse at 80% 70%, rgba(70,84,104,.5), transparent 55%),
+      linear-gradient(160deg, #3b3a2c, #23262b 60%, #2f2620);
+    display: grid; gap: 18px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; }
+  .caption { width: 100%; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.55); margin-bottom: -8px; }
+
+  /* The tracker: [icon][bar: label ... time] */
+  .tracker { --h: 22px; --w: 220px; --b: 8px; --o: 3px; display: flex; gap: calc(var(--o) + 2px); }
+  .tracker.big { --h: 44px; --w: min(440px, 100vw - 136px); --b: 16px; --o: 6px; }
+  .icon, .bar { position: relative; height: var(--h); flex: none; }
+  .icon { width: var(--h); background: radial-gradient(circle at 50% 40%, #7a2f55, #2a0f1e); }
+  .icon svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .bar { width: var(--w); }
+  .bg, .fill { position: absolute; inset: 0; background-size: var(--w) 100%; background-repeat: no-repeat; }
+  .bg { filter: brightness(.25) saturate(.8); opacity: .9; }
+  .fill { right: auto; width: 100%; }
+  .spark {
+    position: absolute; top: 50%; right: 0; width: calc(var(--h) * .9); height: 230%;
+    transform: translate(50%, -50%); pointer-events: none; mix-blend-mode: screen;
+    background: radial-gradient(ellipse 50% 50% at center, rgba(255,246,226,.95), rgba(255,170,210,.5) 35%, transparent 70%);
+  }
+  .frame {
+    position: absolute; inset: calc(var(--o) * -1);
+    border: var(--b) solid transparent;
+    border-image-slice: 20; border-image-repeat: stretch;
+    pointer-events: none;
+  }
+  .label, .time {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    font-family: "Friz Quadrata TT", "Friz Quadrata", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: calc(var(--h) * .5); color: #fff; white-space: nowrap;
+    text-shadow: 1px 1px 0 #000, 0 0 3px rgba(0,0,0,.9);
+  }
+  .label { left: 0; right: 0; text-align: center; }
+  .time { right: calc(var(--h) * .22); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+  <div class="intro">
+    <h1>Barre paladin texturée — propositions</h1>
+    <p>Icône à gauche, nom au centre, temps restant à droite. Rose de classe paladin (245, 140, 186).
+       Les designs 5 à 7 reprennent le style peint des barres de ressource de Blizzard. Chaque design associe un remplissage (512×64, répétable) à un cadre métallique découpé en 9 tranches.
+       La grande barre se vide en boucle ; les petites sont à la taille par défaut en jeu (220×22).</p>
+  </div>
+  <div id="designs"></div>
+</main>
+
+<script>
+const DESIGNS = [
+  { id: "incantation", frame: "or", name: "1 · Incantation",
+    text: "Dans l'esprit de la barre de cast actuelle : reflet brillant en haut, longues traînées d'énergie, cadre doré." },
+  { id: "lumiere", frame: "or", name: "3 · Lumière sacrée",
+    text: "La Lumière tombe du haut de la barre : dégradé or vers rose, rais de lumière et particules dorées." },
+  { id: "ferveur", frame: "or", name: "5 · Ferveur",
+    text: "Dans l'esprit de la barre de Fureur : volutes de lumière qui tourbillonnent sur un magenta profond." },
+  { id: "astral", frame: "acier", name: "6 · Astral",
+    text: "Dans l'esprit des barres de Puissance lunaire et de Folie : nébuleuse rose dans l'ombre, semée d'étoiles." },
+  { id: "courant", frame: "or", name: "7 · Courant sacré",
+    text: "Dans l'esprit de la barre de Maelström : courants de lumière ondulants, légèrement dorés, le long de la barre." },
+];
+
+const ICON = `<svg viewBox="0 0 32 32" aria-hidden="true">
+  <circle cx="16" cy="15" r="11" fill="none" stroke="#f8d98a" stroke-opacity=".35" stroke-width="1.5"/>
+  <rect x="8" y="6" width="16" height="9" rx="1.5" fill="#f6d27a" stroke="#6b4312" stroke-width="1"/>
+  <rect x="14.2" y="15" width="3.6" height="12" fill="#c9974a" stroke="#6b4312" stroke-width="1"/>
+  <rect x="10.5" y="8.2" width="11" height="1.6" fill="#fff6d6" opacity=".8"/>
+</svg>`;
+
+function formatRemaining(seconds) {
+  if (seconds >= 60) return Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
+  if (seconds >= 10) return String(Math.floor(seconds));
+  return seconds.toFixed(1);
+}
+
+function tracker(design, ratio, duration, big) {
+  const fill = `url(fill-${design.id}.png)`;
+  const frame = `border-image-source:url(frame-${design.frame}.png)`;
+  return `<div class="tracker${big ? " big" : ""}"${big ? ` data-duration="${duration}"` : ""}>
+    <div class="icon">${ICON}<div class="frame" style="${frame}"></div></div>
+    <div class="bar">
+      <div class="bg" style="background-image:${fill}"></div>
+      <div class="fill" style="background-image:${fill};width:${ratio * 100}%"><div class="spark"></div></div>
+      <div class="label">Sceau de piété</div>
+      <div class="time">${formatRemaining(ratio * duration)}</div>
+      <div class="frame" style="${frame}"></div>
+    </div>
+  </div>`;
+}
+
+document.getElementById("designs").innerHTML = DESIGNS.map(d => `
+  <section class="card">
+    <header>
+      <h2>${d.name}</h2>
+      <p>${d.text}</p>
+      <p class="files">fill-${d.id}.png · frame-${d.frame}.png</p>
+    </header>
+    <div class="scene">
+      <div class="row"><div class="caption">Animée (×2)</div>${tracker(d, 1, 30, true)}</div>
+      <div class="row"><div class="caption">Taille réelle — 100 %, 60 %, 20 %</div>
+        ${tracker(d, 1, 120)}${tracker(d, 0.6, 120)}${tracker(d, 0.2, 30)}</div>
+    </div>
+  </section>`).join("");
+
+// Drain the big bars in a loop (the fill is cropped, not squashed, like a StatusBar)
+const animated = [...document.querySelectorAll(".tracker[data-duration]")].map(el => ({
+  duration: Number(el.dataset.duration),
+  fill: el.querySelector(".fill"),
+  time: el.querySelector(".time"),
+}));
+const start = performance.now();
+function tick(now) {
+  for (const bar of animated) {
+    const remaining = bar.duration - ((now - start) / 1000) % bar.duration;
+    bar.fill.style.width = (remaining / bar.duration * 100) + "%";
+    bar.time.textContent = formatRemaining(remaining);
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
