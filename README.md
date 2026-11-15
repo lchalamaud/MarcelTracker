@@ -8,4 +8,4 @@ Cloner ce repo dans `World of Warcraft/_forever_/Interface/AddOns/MarcelTracker`
 
 ## Commandes
 
-- `/mt` ou `/marceltracker`
+- `/marcel` ou `/marceltracker`

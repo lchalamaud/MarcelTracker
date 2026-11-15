@@ -20,11 +20,11 @@ MT:SetScript("OnEvent", function(self, event, ...)
             if MarcelTrackerDB[k] == nil then MarcelTrackerDB[k] = v end
         end
         self:UnregisterEvent("ADDON_LOADED")
-        Print("chargé. Tapez /mt pour l'aide.")
+        Print("chargé. Tapez /marcel pour l'aide.")
     end
 end)
 
-SLASH_MARCELTRACKER1 = "/mt"
+SLASH_MARCELTRACKER1 = "/marcel"
 SLASH_MARCELTRACKER2 = "/marceltracker"
 SlashCmdList.MARCELTRACKER = function(msg)
     Print("version " .. (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(addonName, "Version"))
