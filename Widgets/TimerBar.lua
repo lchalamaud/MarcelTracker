@@ -15,6 +15,7 @@ local addonName, ns = ...
 
 local SPARK_TEXTURE = "Interface\\CastingBar\\UI-CastingBar-Spark"
 local TEXT_UPDATE_INTERVAL = 0.1
+local OUTLINE = 1 -- black line around the bar, when it has no border
 
 -- Heartbeat of the time text when the timer is about to run out: it grows
 -- then shrinks back, continuously, and turns orange to stand out.
@@ -77,6 +78,7 @@ ns.TimerBarDefaults = {
     color = { r = 1, g = 0.82, b = 0 },
     texture = "blizzard",
     showSpark = true,
+    border = true,
     showIcon = true,
     showLabel = true,
     showTime = true,
@@ -122,6 +124,7 @@ ns.TimerBarOptions = {
         { "flat", "Unie" },
     } },
     { type = "toggle", key = "showSpark", label = "Étincelle", half = true },
+    { type = "toggle", key = "border", label = "Bordure" },
     { type = "slider", key = "alpha", label = "Opacité (%)", min = 0.1, max = 1, step = 0.05, percent = true },
     { type = "slider", key = "fadeIn", label = "Fondu entrant (ms)", min = 0, max = 2000, step = 50 },
     { type = "slider", key = "fadeOut", label = "Fondu sortant (ms)", min = 0, max = 2000, step = 50 },
@@ -238,7 +241,8 @@ function ns.CreateTimerBar(settings)
     anchor:SetPoint("CENTER")
     self.anchor = anchor
 
-    -- The content frame is shown only while there is something to display and
+    -- The content frame (inset in the anchor, see ApplySettings) is shown only
+    -- while there is something to display and
     -- the bar is not suppressed (plus the time of its fade out). Its own alpha
     -- is the fade, multiplied by the engine with the opacity of the anchor.
     -- Hiding it also pauses its OnUpdate.
@@ -251,10 +255,11 @@ function ns.CreateTimerBar(settings)
     frame.owner = self
     self.frame = frame
 
-    -- 1px black outline around the whole bar
+    -- 1px black outline around the whole bar. With the border, only what
+    -- shows between the icon and the bar remains visible.
     local outline = frame:CreateTexture(nil, "BACKGROUND", nil, -1)
-    outline:SetPoint("TOPLEFT", -1, 1)
-    outline:SetPoint("BOTTOMRIGHT", 1, -1)
+    outline:SetPoint("TOPLEFT", -OUTLINE, OUTLINE)
+    outline:SetPoint("BOTTOMRIGHT", OUTLINE, -OUTLINE)
     outline:SetColorTexture(0, 0, 0, 1)
 
     local icon = frame:CreateTexture(nil, "ARTWORK")
@@ -312,6 +317,9 @@ function ns.CreateTimerBar(settings)
     local fontFile, _, fontFlags = label:GetFont()
     self.fontFile, self.fontFlags = fontFile, fontFlags
 
+    -- Around the whole bar, in front of the status bar and its spark
+    self.border = ns.CreateBorder(frame, 3)
+
     -- Created last, so that it is drawn in front of everything else
     self.moveHighlight = ns.CreateMoveHighlight(anchor)
 
@@ -330,7 +338,17 @@ function TimerBar:ApplySettings()
     anchor:SetAlpha(s.alpha)
     if self.position then self:ApplyPosition() end -- offsets depend on the scale
 
-    icon:SetSize(s.height, s.height)
+    -- The configured size is that of the whole box: the content is inset by
+    -- what surrounds it, the border or else the 1px black outline.
+    local inset = OUTLINE
+    if s.border then inset = self.border:Apply(s.height, true) end
+    self.border:SetShown(s.border)
+    self.frame:ClearAllPoints()
+    self.frame:SetPoint("TOPLEFT", inset, -inset)
+    self.frame:SetPoint("BOTTOMRIGHT", -inset, inset)
+
+    local innerHeight = s.height - 2 * inset
+    icon:SetSize(innerHeight, innerHeight)
     icon:SetShown(s.showIcon)
     bar:ClearAllPoints()
     if s.showIcon then
@@ -368,7 +386,7 @@ function TimerBar:ApplySettings()
     bar:SetStatusBarColor(r, g, b)
     self.barBg:SetVertexColor(r * 0.25, g * 0.25, b * 0.25, 0.8)
 
-    self.spark:SetSize(16, s.height * 2.2)
+    self.spark:SetSize(16, innerHeight * 2.2)
     self.spark:SetShown(self.sparkActive and s.showSpark)
 
     if self.fontFile then

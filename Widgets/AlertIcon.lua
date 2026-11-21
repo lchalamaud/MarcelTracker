@@ -12,7 +12,7 @@ local addonName, ns = ...
 -- Widgets/Movable.lua) or a member of an icon group (Widgets/IconGroup.lua),
 -- which then places it and is what gets moved.
 
-local BORDER = 1          -- black frame around the icon
+local OUTLINE = 1         -- black frame around the icon, when it has no border
 local ICON_CROP = 0.07    -- hides the built-in border of Blizzard icons
 local TEXT_RATIO = 0.3    -- font size, as a fraction of the icon size
 local MIN_FONT_SIZE = 8
@@ -29,6 +29,7 @@ ns.AlertIconDefaults = {
     size = 48,
     alpha = 1,
     shake = true,
+    border = true,
 }
 
 -- Option descriptors for the config window (see Config/Controls.lua)
@@ -36,7 +37,8 @@ ns.AlertIconOptions = {
     { type = "header", label = "Apparence" },
     { type = "slider", key = "size", label = "Taille", min = 16, max = 128, step = 2 },
     { type = "slider", key = "alpha", label = "Opacité (%)", min = 0.1, max = 1, step = 0.05, percent = true },
-    { type = "toggle", key = "shake", label = "Secouer l'icône" },
+    { type = "toggle", key = "shake", label = "Secouer l'icône", half = true },
+    { type = "toggle", key = "border", label = "Bordure", half = true },
 }
 
 local AlertIcon = {}
@@ -68,13 +70,12 @@ function ns.CreateAlertIcon(settings, group)
     frame:Hide()
     self.frame = frame
 
-    local border = frame:CreateTexture(nil, "BACKGROUND")
-    border:SetAllPoints()
-    border:SetColorTexture(0, 0, 0, 1)
+    local outline = frame:CreateTexture(nil, "BACKGROUND")
+    outline:SetAllPoints()
+    outline:SetColorTexture(0, 0, 0, 1)
+    self.outline = outline
 
     local icon = frame:CreateTexture(nil, "ARTWORK")
-    icon:SetPoint("TOPLEFT", BORDER, -BORDER)
-    icon:SetPoint("BOTTOMRIGHT", -BORDER, BORDER)
     icon:SetTexCoord(ICON_CROP, 1 - ICON_CROP, ICON_CROP, 1 - ICON_CROP)
     self.icon = icon
 
@@ -100,6 +101,10 @@ function ns.CreateAlertIcon(settings, group)
         self.shakeGroup = shake
     end
 
+    -- Inside the icon, so that it takes no room in a group. A child of the
+    -- content frame: it is shaken with it.
+    self.border = ns.CreateBorder(frame)
+
     -- Created last, so that it is drawn in front of everything else
     self.moveHighlight = ns.CreateMoveHighlight(anchor)
 
@@ -114,6 +119,16 @@ function AlertIcon:ApplySettings()
 
     self.anchor:SetSize(s.size, s.size)
     self.anchor:SetAlpha(s.alpha)
+
+    -- The border replaces the black outline, which would show in its notched
+    -- corners. The icon goes 1px under the band, to leave no gap.
+    local inset = OUTLINE
+    if s.border then inset = self.border:Apply(s.size) - 1 end
+    self.border:SetShown(s.border)
+    self.outline:SetShown(not s.border)
+    self.icon:ClearAllPoints()
+    self.icon:SetPoint("TOPLEFT", inset, -inset)
+    self.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
 
     if self.fontFile then
         self.text:SetFont(self.fontFile, math.max(MIN_FONT_SIZE, s.size * TEXT_RATIO), "OUTLINE")

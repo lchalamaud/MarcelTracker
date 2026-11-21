@@ -6,7 +6,9 @@
 ## SavedVariables: MarcelTrackerDB
 
 MarcelTracker.lua
+Widgets\NineSlice.lua
 Widgets\Movable.lua
+Widgets\Border.lua
 Widgets\TimerBar.lua
 Widgets\IconGroup.lua
 Widgets\AlertIcon.lua

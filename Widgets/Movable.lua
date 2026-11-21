@@ -20,8 +20,8 @@ end
 -- blue veil in front of the widget.
 --
 -- Drawn from our own texture (Media/MoveHighlight.tga, a 32x32 rounded
--- rectangle built by tools/generate_textures.py) cut in nine slices: the 8px
--- corners keep their shape, the edges and the centre stretch.
+-- rectangle built by tools/generate_textures.py) cut in nine slices (see
+-- Widgets/NineSlice.lua), with 8px corners.
 local HIGHLIGHT_TEXTURE = MEDIA .. "MoveHighlight.tga"
 local HIGHLIGHT_CORNER = 8  -- size of a corner slice, on screen
 local HIGHLIGHT_SLICE = 0.25 -- same, as a fraction of the texture (8 / 32)
@@ -34,34 +34,7 @@ function ns.CreateMoveHighlight(anchor)
     highlight:SetFrameLevel(anchor:GetFrameLevel() + 10) -- in front of the widget
     highlight:Hide()
 
-    local a, b = HIGHLIGHT_SLICE, 1 - HIGHLIGHT_SLICE
-    local function Piece(left, right, top, bottom)
-        local piece = highlight:CreateTexture(nil, "OVERLAY")
-        piece:SetTexture(HIGHLIGHT_TEXTURE)
-        piece:SetTexCoord(left, right, top, bottom)
-        return piece
-    end
-
-    local topLeft, topRight = Piece(0, a, 0, a), Piece(b, 1, 0, a)
-    local bottomLeft, bottomRight = Piece(0, a, b, 1), Piece(b, 1, b, 1)
-    topLeft:SetPoint("TOPLEFT")
-    topRight:SetPoint("TOPRIGHT")
-    bottomLeft:SetPoint("BOTTOMLEFT")
-    bottomRight:SetPoint("BOTTOMRIGHT")
-    for _, corner in ipairs({ topLeft, topRight, bottomLeft, bottomRight }) do
-        corner:SetSize(HIGHLIGHT_CORNER, HIGHLIGHT_CORNER)
-    end
-
-    local function Between(piece, from, fromPoint, to, toPoint)
-        piece:SetPoint("TOPLEFT", from, fromPoint)
-        piece:SetPoint("BOTTOMRIGHT", to, toPoint)
-    end
-    Between(Piece(a, b, 0, a), topLeft, "TOPRIGHT", topRight, "BOTTOMLEFT")          -- top
-    Between(Piece(a, b, b, 1), bottomLeft, "TOPRIGHT", bottomRight, "BOTTOMLEFT")    -- bottom
-    Between(Piece(0, a, a, b), topLeft, "BOTTOMLEFT", bottomLeft, "TOPRIGHT")        -- left
-    Between(Piece(b, 1, a, b), topRight, "BOTTOMLEFT", bottomRight, "TOPRIGHT")      -- right
-    Between(Piece(a, b, a, b), topLeft, "BOTTOMRIGHT", bottomRight, "TOPLEFT")       -- centre
-
+    ns.CreateNineSlice(highlight, HIGHLIGHT_TEXTURE, HIGHLIGHT_SLICE, HIGHLIGHT_CORNER)
     return highlight
 end
 
