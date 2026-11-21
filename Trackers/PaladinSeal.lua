@@ -177,11 +177,20 @@ function Tracker:SyncFromAuras()
     self.bar:ShowAura("player", aura)
 end
 
+-- Whether a cast of `spellID` puts a seal on the player. Seal procs (Seal of
+-- Command's extra attack, Seal of Light's heal...) also fire
+-- UNIT_SPELLCAST_SUCCEEDED and share the seal's name, but are not spells of
+-- the player: only known seal auras, or player spells named like a seal, count.
+function Tracker:IsSealCast(spellID)
+    if self.sealIds[spellID] then return true end
+    if not IsPlayerSpell or not IsPlayerSpell(spellID) then return false end
+    return MatchesAny(GetSpellNameAndIcon(spellID), SEAL_NAME_PATTERNS)
+end
+
 function Tracker:OnSpellCast(spellID)
     if not spellID or issecret(spellID) then return end
-    local name = GetSpellNameAndIcon(spellID)
 
-    if self.sealIds[spellID] or MatchesAny(name, SEAL_NAME_PATTERNS) then
+    if self:IsSealCast(spellID) then
         self:LearnSeal(spellID)
         if AurasAreSecret() then
             local duration = self.db.sealDurations[spellID] or DEFAULT_SEAL_DURATION
@@ -269,7 +278,13 @@ function Tracker:Init(db)
         self.sealIds[spellID] = true
     end
     for spellID in pairs(db.learnedSealIds) do
-        self.sealIds[spellID] = true
+        -- A real seal is seen as an aura and gets a duration; an ID without one
+        -- was learned from a seal proc's cast event by an older version.
+        if db.sealDurations[spellID] then
+            self.sealIds[spellID] = true
+        else
+            db.learnedSealIds[spellID] = nil
+        end
     end
 
     self.bar = ns.CreateTimerBar(self.settings)
