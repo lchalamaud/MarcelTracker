@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Builds the textures shipped in Media/: the retained designs of design/,
-and the highlight of unlocked bars.
+the highlight of unlocked bars and the border of the widgets.
 
 Pure standard library. Run from the addon root:
     python3 tools/generate_textures.py
@@ -112,6 +112,66 @@ def move_highlight(size=32, radius=5.0, border=1.6):
     return size, size, rows
 
 
+def border(size=32, band=4, chamfer=3.0):
+    """Border of the widgets, in the style of the native frames: a thin gold
+    bevel lit from the top left, with a dark outer line, notched (chamfered)
+    corners and a soft shadow cast inwards. Transparent centre.
+
+    Meant to be cut in nine slices of size / 4: the band only fills the outer
+    half of a slice, the inner half holds the shadow."""
+    outline = (22, 15, 8)
+    dark = (104, 72, 28)     # gold in the shade (bottom, right)
+    light = (236, 204, 124)  # gold in the light (top, left)
+    shine = (255, 244, 200)
+    profile = {1: 1.0, 2: 0.86, 3: 0.62}  # brightness across the band
+    slice_size = size // 4
+    rows = []
+    for y in range(size):
+        row = []
+        for x in range(size):
+            px, py = x + 0.5, y + 0.5
+            dx, dy = min(px, size - px), min(py, size - py)
+            diagonal = (dx + dy - chamfer) / 2 ** 0.5
+            depth = min(dx, dy, diagonal)  # into the notched outer shape
+            flat = min(dx, dy)             # into the square it is cut from
+            coverage = max(0.0, min(1.0, depth + 0.5))
+            if coverage <= 0:
+                row.append((0, 0, 0, 0))
+                continue
+
+            if flat >= band:
+                # inner shadow, fading over the rest of the slice
+                fade = 1 - (flat - band) / (slice_size - band)
+                alpha = 0.45 * max(0.0, fade) ** 1.6
+                row.append((0, 0, 0, int(round(alpha * 255))))
+                continue
+
+            if depth < 1:
+                color = outline
+            else:
+                # outward normal: (-1, 0) on the left edge, (0, -1) at the top
+                if diagonal < flat:
+                    nx, ny = 0.7071, 0.7071
+                elif dx < dy:
+                    nx, ny = 1.0, 0.0
+                else:
+                    nx, ny = 0.0, 1.0
+                if px < size / 2:
+                    nx = -nx
+                if py < size / 2:
+                    ny = -ny
+                lit = -ny * 0.85 - nx * 0.5
+                base = [dark[i] + (light[i] - dark[i]) * (0.5 + 0.5 * max(-1.0, min(1.0, lit))) for i in range(3)]
+                step = min(int(depth), band - 1)
+                color = [c * profile[step] for c in base]
+                if step == 1 and lit > 0:
+                    color = [color[i] + (shine[i] - color[i]) * 0.45 * lit for i in range(3)]
+                color = tuple(int(round(max(0, min(255, c)))) for c in color)
+            row.append(tuple(color) + (int(round(coverage * 255)),))
+        rows.append(row)
+    return size, size, rows
+
+
 def is_power_of_two(n):
     return n > 0 and n & (n - 1) == 0
 
@@ -127,3 +187,7 @@ if __name__ == "__main__":
     width, height, rows = move_highlight()
     write_tga(os.path.join("Media", "MoveHighlight.tga"), width, height, rows)
     print("wrote Media/MoveHighlight.tga (%dx%d)" % (width, height))
+
+    width, height, rows = border()
+    write_tga(os.path.join("Media", "Border.tga"), width, height, rows)
+    print("wrote Media/Border.tga (%dx%d)" % (width, height))
