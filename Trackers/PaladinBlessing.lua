@@ -4,13 +4,22 @@ local addonName, ns = ...
 -- blessing, whoever cast it; as soon as there is none, a blessing icon
 -- labelled "Béné" pops up and shakes until a blessing is back.
 --
--- Out of combat the player's buffs are the source of truth, matched by name.
--- In combat auras are secret (see Trackers/PaladinSeal.lua) and nothing is
--- read: the last known state is kept, and updated by
---   * the expiry time of the blessing, remembered from the last read;
---   * the player's own casts of a blessing on themselves;
+-- Out of combat the player's buffs are the source of truth, matched by name:
+-- each blessing is remembered by its aura instance ID with its expiry time,
+-- and its duration is remembered per spell in SavedVariables.
+-- In combat auras are secret (see Trackers/PaladinSeal.lua) and no buff is
+-- read. The last known state is kept, and updated by
+--   * UNIT_AURA's update info, as far as it is readable: a remembered
+--     instance ID that is removed is a blessing gone (expired, dispelled,
+--     cancelled), an added aura whose name is readable may be a new one;
+--   * the expiry times, checked by a timer;
+--   * the player's own casts of a blessing that reach them (cast on
+--     themselves, auto self-cast while targeting an enemy, greater blessing on
+--     someone of their class); such a blessing has no known instance ID and
+--     lasts the remembered duration of the spell;
 --   * death.
--- A blessing received from someone else in combat is only seen once out of it.
+-- A blessing received from someone else in combat may only be seen once out
+-- of it.
 --
 -- The icon is a member of the reminder group (Widgets/IconGroup.lua), which
 -- owns the position shared by all the reminder icons.
@@ -19,51 +28,86 @@ local ICON_SPELL_ID = 20217 -- Blessing of Kings
 local ICON_FALLBACK = "Interface\\Icons\\Spell_Magic_MageArmor"
 local LABEL = "Béné"
 local EXPIRY_MARGIN = 0.2 -- UNIT_AURA may fire a hair before the expiry time
+local NO_EXPIRY = math.huge
 
 -- frFR "Bénédiction des rois", "Bénédiction des rois supérieure"
 -- enUS "Blessing of Kings", "Greater Blessing of Kings"
 local BLESSING_NAME_PATTERNS = { "^Bénédiction ", "Blessing of " }
+-- Greater blessings reach every group member of the target's class.
+local GREATER_NAME_PATTERNS = { " supérieure$", "^Greater " }
 
 local issecret = issecretvalue or function() return false end
+local issecrettable = issecrettable or function() return false end
 local AurasAreSecret = C_Secrets and C_Secrets.ShouldAurasBeSecret or function() return false end
 local GetAuraDataByIndex = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellInfo
 
-local function IsBlessingName(name)
-    if issecret(name) or type(name) ~= "string" then return false end
-    for _, pattern in ipairs(BLESSING_NAME_PATTERNS) do
+-- Friendly units a blessing may have been cast on.
+local CAST_UNITS = { "target", "focus", "mouseover" }
+for i = 1, 4 do table.insert(CAST_UNITS, "party" .. i) end
+for i = 1, 40 do table.insert(CAST_UNITS, "raid" .. i) end
+
+local function Readable(value)
+    return value ~= nil and not issecret(value)
+end
+
+local function MatchesAny(name, patterns)
+    if not Readable(name) or type(name) ~= "string" then return false end
+    for _, pattern in ipairs(patterns) do
         if name:find(pattern) then return true end
     end
     return false
 end
 
--- Returns whether the player has a blessing, and when the last of them
--- expires (nil if unknown or never). Only call when auras are readable.
-local function ScanBlessings()
-    local found, expiresAt = false, 0
-    for index = 1, 40 do
-        local name, expiration
-        if GetAuraDataByIndex then
-            local aura = GetAuraDataByIndex("player", index, "HELPFUL")
-            if aura then name, expiration = aura.name, aura.expirationTime end
-        else
-            local _
-            name, _, _, _, _, expiration = UnitBuff("player", index)
-        end
-        if not name then break end
-        if IsBlessingName(name) then
-            found = true
-            if expiresAt then
-                if issecret(expiration) or type(expiration) ~= "number" or expiration <= 0 then
-                    expiresAt = nil
-                elseif expiration > expiresAt then
-                    expiresAt = expiration
-                end
+local function IsBlessingName(name)
+    return MatchesAny(name, BLESSING_NAME_PATTERNS)
+end
+
+-- Expiry time of an aura, NO_EXPIRY if it has none or it is not readable.
+local function ReadExpiration(expiration)
+    if not Readable(expiration) or type(expiration) ~= "number" or expiration <= 0 then
+        return NO_EXPIRY
+    end
+    return expiration
+end
+
+-- The i-th player buff as an AuraData-like table, or nil.
+-- Only call when auras are readable.
+local function GetPlayerBuff(index)
+    if GetAuraDataByIndex then
+        return GetAuraDataByIndex("player", index, "HELPFUL")
+    end
+    local name, _, _, _, duration, expirationTime, _, _, _, spellId = UnitBuff("player", index)
+    if not name then return nil end
+    return { name = name, duration = duration, expirationTime = expirationTime, spellId = spellId }
+end
+
+-- Whether a blessing cast on `targetName` (from UNIT_SPELLCAST_SENT) reaches
+-- the player.
+local function CastReachesPlayer(spellName, targetName)
+    if not Readable(targetName) or type(targetName) ~= "string" or targetName == "" then
+        return true
+    end
+    -- A player may be named with their realm; a creature's name may hold a dash
+    local shortName = targetName:match("^[^-]+") or targetName
+    if shortName == UnitName("player") then return true end
+
+    for _, unit in ipairs(CAST_UNITS) do
+        local name = UnitExists(unit) and UnitName(unit)
+        if Readable(name) and (name == targetName or name == shortName) then
+            -- An enemy cannot be blessed: the spell was self-cast instead
+            if not UnitIsFriend("player", unit) then return true end
+            if MatchesAny(spellName, GREATER_NAME_PATTERNS) and (UnitInParty(unit) or UnitInRaid(unit)) then
+                local _, playerClass = UnitClass("player")
+                local _, unitClass = UnitClass(unit)
+                return Readable(unitClass) and unitClass == playerClass
             end
+            return false
         end
     end
-    return found, found and expiresAt or nil
+    -- Nobody around has that name: assume someone out of sight
+    return false
 end
 
 local Tracker = { key = "paladinBlessing", name = "Bénédiction" }
@@ -90,19 +134,94 @@ function Tracker:ShouldLoad()
     return class == "PALADIN"
 end
 
+-- State, while auras are secret:
+--   self.known     false until the buffs could be read once
+--   self.auras     instance ID (or a placeholder key) -> expiry time of each
+--                  blessing seen on the player
+--   self.castUntil expiry time of a blessing cast by the player in combat,
+--                  whose instance ID is unknown; nil if none
+function Tracker:ResetState(known)
+    self.known = known
+    self.auras = {}
+    self.castUntil = nil
+end
+
+-- Rebuilds the state from the player's buffs. Only call when auras are readable.
+function Tracker:ScanBlessings()
+    self:ResetState(true)
+    for index = 1, 40 do
+        local aura = GetPlayerBuff(index)
+        if not aura then break end
+        if IsBlessingName(aura.name) then
+            local id = aura.auraInstanceID
+            if not Readable(id) then id = "index" .. index end
+            self.auras[id] = ReadExpiration(aura.expirationTime)
+
+            local spellID, duration = aura.spellId, aura.duration
+            if Readable(spellID) and Readable(duration) and type(duration) == "number" and duration > 0 then
+                self.db.blessingDurations[spellID] = duration
+            end
+        end
+    end
+end
+
+-- Applies UNIT_AURA's update info while auras are secret, as far as it can be
+-- read; anything unreadable leaves the state as it is.
+function Tracker:ApplyAuraUpdate(info)
+    if type(info) ~= "table" or issecrettable(info) then return end
+
+    local removed = info.removedAuraInstanceIDs
+    if type(removed) == "table" and not issecrettable(removed) then
+        for _, id in ipairs(removed) do
+            if Readable(id) then self.auras[id] = nil end
+        end
+    end
+
+    local added = info.addedAuras
+    if type(added) == "table" and not issecrettable(added) then
+        for _, aura in ipairs(added) do
+            if type(aura) == "table" and not issecrettable(aura) and IsBlessingName(aura.name) then
+                local id = aura.auraInstanceID
+                if Readable(id) then
+                    self.auras[id] = ReadExpiration(aura.expirationTime)
+                    self.known = true
+                end
+            end
+        end
+    end
+end
+
+-- A blessing cast by the player has just reached them, auras being secret.
+function Tracker:OnOwnBlessing(spellID)
+    local duration = self.db.blessingDurations[spellID]
+    local expiresAt = duration and GetTime() + duration or NO_EXPIRY
+    if not self.castUntil or expiresAt > self.castUntil then
+        self.castUntil = expiresAt
+    end
+    self.known = true
+end
+
+-- Forgets the blessings whose expiry time has passed.
+function Tracker:DropExpired()
+    local deadline = GetTime() + EXPIRY_MARGIN
+    for id, expiresAt in pairs(self.auras) do
+        if expiresAt <= deadline then self.auras[id] = nil end
+    end
+    if self.castUntil and self.castUntil <= deadline then
+        self.castUntil = nil
+    end
+end
+
 -- Returns true or false, or nil when the state is not known (interface
 -- reloaded in combat).
 function Tracker:HasBlessing()
-    if AurasAreSecret() then
-        local expiresAt = self.expiresAt
-        if self.hasBlessing and expiresAt and GetTime() >= expiresAt - EXPIRY_MARGIN then
-            self.hasBlessing, self.expiresAt = false, nil
-        end
-        return self.hasBlessing
+    if not AurasAreSecret() then
+        self:ScanBlessings()
+    else
+        self:DropExpired()
+        if not self.known then return nil end
     end
-
-    self.hasBlessing, self.expiresAt = ScanBlessings()
-    return self.hasBlessing
+    return next(self.auras) ~= nil or self.castUntil ~= nil
 end
 
 -- Recomputes whether the icon should be shown right now. An unknown state
@@ -117,14 +236,22 @@ function Tracker:Refresh()
         shown = self:HasBlessing() == false and not UnitIsDeadOrGhost("player")
     end
     self.icon:SetShown(shown)
+    if AurasAreSecret() then self:ScheduleExpiryCheck() end
 end
 
--- In combat nothing tells that the blessing ran out: check again by ourselves
--- when it is due to.
+-- In combat nothing may tell that a blessing ran out: check again by
+-- ourselves when the next one is due to.
 function Tracker:ScheduleExpiryCheck()
-    local expiresAt = self.expiresAt
-    if not (expiresAt and C_Timer and C_Timer.After) then return end
-    C_Timer.After(math.max(0, expiresAt - GetTime()) + 0.1, function()
+    if not (C_Timer and C_Timer.After) then return end
+    local nextExpiry = self.castUntil or NO_EXPIRY
+    for _, expiresAt in pairs(self.auras) do
+        if expiresAt < nextExpiry then nextExpiry = expiresAt end
+    end
+    if nextExpiry == NO_EXPIRY or nextExpiry == self.checkAt then return end
+
+    self.checkAt = nextExpiry
+    C_Timer.After(math.max(0, nextExpiry - GetTime()) + 0.1, function()
+        if self.checkAt == nextExpiry then self.checkAt = nil end
         if self.settings.enabled then self:Refresh() end
     end)
 end
@@ -133,24 +260,25 @@ function Tracker:OnEvent(event, ...)
     if event == "UNIT_SPELLCAST_SENT" then
         -- Remember who the cast is aimed at, for UNIT_SPELLCAST_SUCCEEDED
         local _, target = ...
-        if not issecret(target) and type(target) == "string" and target ~= "" then
-            self.castTarget = target
-        else
-            self.castTarget = nil
-        end
+        self.castTarget = target
         return
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local _, _, spellID = ...
-        if not spellID or issecret(spellID) then return end
-        if not IsBlessingName(GetSpellName and GetSpellName(spellID)) then return end
-        -- A blessing cast on someone else changes nothing for the player
         local target = self.castTarget
-        if target and target ~= UnitName("player") then return end
-        self.hasBlessing, self.expiresAt = true, nil
+        self.castTarget = nil
+        if not Readable(spellID) then return end
+        local spellName = GetSpellName and GetSpellName(spellID)
+        if not IsBlessingName(spellName) then return end
+        -- Out of combat UNIT_AURA tells it all
+        if not AurasAreSecret() or not CastReachesPlayer(spellName, target) then return end
+        self:OnOwnBlessing(spellID)
+    elseif event == "UNIT_AURA" then
+        if AurasAreSecret() then
+            local _, info = ...
+            self:ApplyAuraUpdate(info)
+        end
     elseif event == "PLAYER_DEAD" then
-        self.hasBlessing, self.expiresAt = false, nil -- blessings do not survive death
-    elseif event == "PLAYER_REGEN_DISABLED" then
-        self:ScheduleExpiryCheck()
+        self:ResetState(true) -- blessings do not survive death
     end
     self:Refresh()
 end
@@ -186,7 +314,9 @@ end
 function Tracker:Init(db)
     self.db = db
     self.settings = db.settings
+    db.blessingDurations = db.blessingDurations or {}
     self.group = ns.GetReminderGroup()
+    self:ResetState(false)
 
     self.icon = ns.CreateAlertIcon(self.settings, self.group)
     self.icon:SetIcon(GetSpellTexture and GetSpellTexture(ICON_SPELL_ID) or ICON_FALLBACK)
