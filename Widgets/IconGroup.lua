@@ -3,10 +3,10 @@ local addonName, ns = ...
 -- Icon group: a row of alert icons (Widgets/AlertIcon.lua) sharing one saved
 -- position. Only the icons currently shown take room: they sit side by side,
 -- in the order they joined the group, and the row is centred on the position
--- of the group. Each icon keeps its own size and opacity.
+-- of the group. Icons may differ in size: the row is as tall as the largest.
 --
 -- The group is what is moved (drag and drop while unlocked, X/Y offsets), see
--- Widgets/Movable.lua.
+-- Widgets/Movable.lua. A display zone (Zones/Zone.lua) is built on a group.
 
 local SPACING = 6 -- gap between two icons
 
@@ -71,42 +71,3 @@ function IconGroup:SetMovable(movable)
     ns.Movable.SetMovable(self, self.movable)
     self:Layout()
 end
-
-function IconGroup:ResetPosition()
-    local default = self.defaultPosition
-    self:SetOffset(default[3], default[4])
-end
-
--- The reminder group: the icons telling that a buff is missing (paladin aura,
--- blessing...). Created on first use, once SavedVariables are loaded.
---
--- `legacyPosition` is optional: a position saved by a tracker from before the
--- group existed, used if the group has none yet.
-
-local REMINDER_DEFAULT_POSITION = { "CENTER", "CENTER", 0, 120 }
-local reminderGroup
-
-function ns.GetReminderGroup(legacyPosition)
-    if not reminderGroup then
-        local db = MarcelTrackerDB.reminderGroup or {}
-        MarcelTrackerDB.reminderGroup = db
-        db.position = db.position or legacyPosition or { unpack(REMINDER_DEFAULT_POSITION) }
-
-        reminderGroup = ns.CreateIconGroup(db.position)
-        reminderGroup.defaultPosition = REMINDER_DEFAULT_POSITION
-        reminderGroup.onMoved = function() ns.RefreshConfig() end
-    end
-    return reminderGroup
-end
-
--- Option descriptors for the config window (see Config/Controls.lua), for a
--- tracker whose GetPosition / SetPosition / ResetPosition go to the group.
-ns.ReminderGroupOptions = {
-    { type = "header", label = "Position du groupe de rappels (commune)" },
-    { type = "position" },
-    {
-        type = "button",
-        label = "Réinitialiser la position",
-        func = function(tracker) tracker:ResetPosition() end,
-    },
-}

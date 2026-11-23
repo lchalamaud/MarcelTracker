@@ -18,6 +18,10 @@ ns.Print = Print
 --   SetUnlocked(b)   optional, show/hide a draggable preview
 --   SetPreview(b)    optional, show an example while the config window is open
 --   ResetPosition()  optional
+--   zone             optional, set in Init: the display zone (Zones/Zone.lua)
+--                    the tracker shows its icons in. The zone owns their
+--                    position and appearance, and the config window shows the
+--                    tracker's options on the page of its zone.
 -- To appear in the config window (Config/Window.lua), a tracker also has:
 --   name             display name
 --   defaults         default values, merged into db.settings before Init
@@ -26,6 +30,7 @@ ns.Print = Print
 --   GetPosition() / SetPosition(x, y)  if it declares a "position" option
 ns.trackers = {}
 ns.activeTrackers = {}
+ns.zones = {} -- display zones in use, see Zones/Zone.lua
 ns.unlocked = false
 
 function ns.RegisterTracker(tracker)
@@ -50,6 +55,7 @@ local function ApplyDefaults(target, source)
         end
     end
 end
+ns.ApplyDefaults = ApplyDefaults
 
 local function InitTrackers()
     for _, tracker in ipairs(ns.trackers) do
@@ -79,9 +85,11 @@ local function RefreshConfig()
     if ns.RefreshConfig then ns.RefreshConfig() end
 end
 
--- Unlocked: every tracker shows a preview that can be dragged around.
+-- Unlocked: every tracker shows a preview, and every bar or zone can be
+-- dragged around.
 function ns.SetUnlocked(unlocked)
     ns.unlocked = unlocked and true or false
+    for _, zone in ipairs(ns.zones) do zone:SetMovable(ns.unlocked) end
     ForEachActive("SetUnlocked", ns.unlocked)
     RefreshConfig()
 end
@@ -94,6 +102,7 @@ function ns.SetPreview(preview)
 end
 
 function ns.ResetPositions()
+    for _, zone in ipairs(ns.zones) do zone:ResetPosition() end
     ForEachActive("ResetPosition")
     RefreshConfig()
 end

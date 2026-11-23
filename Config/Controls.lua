@@ -2,21 +2,22 @@ local addonName, ns = ...
 
 -- Control factories for the config page, one per option type.
 --
--- A tracker declares a list of option descriptors:
+-- A tracker or a display zone (the "owner" of the options) declares a list of
+-- option descriptors:
 --   { type = "header",   label }
 --   { type = "toggle",   key, label }
 --   { type = "slider",   key, label, min, max, step, percent }
 --   { type = "select",   key, label, values = { { value, text }, ... } }
 --   { type = "color",    key, label }             value is a { r, g, b } table
---   { type = "position", label }                  uses tracker:GetPosition/SetPosition
---   { type = "button",   label, func(tracker) }
+--   { type = "position", label }                  uses owner:GetPosition/SetPosition
+--   { type = "button",   label, func(owner) }
 -- Common optional fields:
 --   half      take half a row instead of a full one
 --   disabled  function(settings) returning true to grey the control out
 --
 -- Each factory is called as factory(parent, option, ctx, width) and returns a
 -- frame with a :Refresh() method. `ctx` gives access to the values:
---   ctx.tracker, ctx.settings, ctx.get(key), ctx.set(key, value)
+--   ctx.owner, ctx.settings, ctx.get(key), ctx.set(key, value)
 --
 -- Everything is built from raw widgets and a few long-standing templates
 -- (UIPanelButtonTemplate, InputBoxTemplate): no UIDropDownMenu, which is a
@@ -383,7 +384,7 @@ function Controls.color(parent, opt, ctx, width)
     button:SetScript("OnClick", function()
         local color = ctx.get(opt.key)
         OpenColorPicker(color.r, color.g, color.b, function(r, g, b)
-            -- Mutate in place: the tracker keeps a reference to this table
+            -- Mutate in place: the owner keeps a reference to this table
             color.r, color.g, color.b = r, g, b
             ctx.set(opt.key, color)
         end)
@@ -407,16 +408,16 @@ local POSITION_LIMIT = 5000
 
 function Controls.position(parent, opt, ctx, width)
     local row = CreateRow(parent, width)
-    local tracker = ctx.tracker
+    local owner = ctx.owner
     local boxes = {}
 
     local function Commit()
-        local x, y = tracker:GetPosition()
+        local x, y = owner:GetPosition()
         x = ParseNumber(boxes[1]:GetText()) or x
         y = ParseNumber(boxes[2]:GetText()) or y
         x = math.max(-POSITION_LIMIT, math.min(POSITION_LIMIT, Round(x)))
         y = math.max(-POSITION_LIMIT, math.min(POSITION_LIMIT, Round(y)))
-        tracker:SetPosition(x, y)
+        owner:SetPosition(x, y)
         row:Refresh()
     end
 
@@ -449,7 +450,7 @@ function Controls.position(parent, opt, ctx, width)
     CreateAxis(2, "Y", width / 2 + 2)
 
     function row:Refresh()
-        local x, y = tracker:GetPosition()
+        local x, y = owner:GetPosition()
         if not boxes[1]:HasFocus() then boxes[1]:SetText(tostring(Round(x))) end
         if not boxes[2]:HasFocus() then boxes[2]:SetText(tostring(Round(y))) end
     end
@@ -469,7 +470,7 @@ function Controls.button(parent, opt, ctx, width)
     button:SetText(opt.label or "")
     button:SetWidth(button:GetTextWidth() + 28)
     button:SetScript("OnClick", function()
-        opt.func(ctx.tracker)
+        opt.func(ctx.owner)
         ctx.refresh()
     end)
 

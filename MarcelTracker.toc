@@ -12,6 +12,8 @@ Widgets\Border.lua
 Widgets\TimerBar.lua
 Widgets\IconGroup.lua
 Widgets\AlertIcon.lua
+Zones\Zone.lua
+Zones\Reminders.lua
 Config\Controls.lua
 Config\Window.lua
 Trackers\PaladinSeal.lua
