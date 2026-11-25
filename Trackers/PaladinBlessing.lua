@@ -35,6 +35,13 @@ local NO_EXPIRY = math.huge
 local BLESSING_NAME_PATTERNS = { "^Bénédiction ", "Blessing of " }
 -- Greater blessings reach every group member of the target's class.
 local GREATER_NAME_PATTERNS = { " supérieure$", "^Greater " }
+-- Short blessings: protections lasting a few seconds, not what this reminder
+-- is about (some are shown by Trackers/ShortBuffs.lua).
+local SHORT_BLESSING_NAMES = {
+    ["Bénédiction de liberté"] = true, ["Blessing of Freedom"] = true,
+    ["Bénédiction de protection"] = true, ["Blessing of Protection"] = true,
+    ["Bénédiction de sacrifice"] = true, ["Blessing of Sacrifice"] = true,
+}
 
 local issecret = issecretvalue or function() return false end
 local issecrettable = issecrettable or function() return false end
@@ -42,11 +49,6 @@ local AurasAreSecret = C_Secrets and C_Secrets.ShouldAurasBeSecret or function()
 local GetAuraDataByIndex = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellInfo
-
--- Friendly units a blessing may have been cast on.
-local CAST_UNITS = { "target", "focus", "mouseover" }
-for i = 1, 4 do table.insert(CAST_UNITS, "party" .. i) end
-for i = 1, 40 do table.insert(CAST_UNITS, "raid" .. i) end
 
 local function Readable(value)
     return value ~= nil and not issecret(value)
@@ -61,7 +63,7 @@ local function MatchesAny(name, patterns)
 end
 
 local function IsBlessingName(name)
-    return MatchesAny(name, BLESSING_NAME_PATTERNS)
+    return MatchesAny(name, BLESSING_NAME_PATTERNS) and not SHORT_BLESSING_NAMES[name]
 end
 
 -- Expiry time of an aura, NO_EXPIRY if it has none or it is not readable.
@@ -81,33 +83,6 @@ local function GetPlayerBuff(index)
     local name, _, _, _, duration, expirationTime, _, _, _, spellId = UnitBuff("player", index)
     if not name then return nil end
     return { name = name, duration = duration, expirationTime = expirationTime, spellId = spellId }
-end
-
--- Whether a blessing cast on `targetName` (from UNIT_SPELLCAST_SENT) reaches
--- the player.
-local function CastReachesPlayer(spellName, targetName)
-    if not Readable(targetName) or type(targetName) ~= "string" or targetName == "" then
-        return true
-    end
-    -- A player may be named with their realm; a creature's name may hold a dash
-    local shortName = targetName:match("^[^-]+") or targetName
-    if shortName == UnitName("player") then return true end
-
-    for _, unit in ipairs(CAST_UNITS) do
-        local name = UnitExists(unit) and UnitName(unit)
-        if Readable(name) and (name == targetName or name == shortName) then
-            -- An enemy cannot be blessed: the spell was self-cast instead
-            if not UnitIsFriend("player", unit) then return true end
-            if MatchesAny(spellName, GREATER_NAME_PATTERNS) and (UnitInParty(unit) or UnitInRaid(unit)) then
-                local _, playerClass = UnitClass("player")
-                local _, unitClass = UnitClass(unit)
-                return Readable(unitClass) and unitClass == playerClass
-            end
-            return false
-        end
-    end
-    -- Nobody around has that name: assume someone out of sight
-    return false
 end
 
 local Tracker = { key = "paladinBlessing", name = "Bénédiction" }
@@ -260,7 +235,8 @@ function Tracker:OnEvent(event, ...)
         local spellName = GetSpellName and GetSpellName(spellID)
         if not IsBlessingName(spellName) then return end
         -- Out of combat UNIT_AURA tells it all
-        if not AurasAreSecret() or not CastReachesPlayer(spellName, target) then return end
+        if not AurasAreSecret() then return end
+        if not ns.CastReachesPlayer(target, MatchesAny(spellName, GREATER_NAME_PATTERNS)) then return end
         self:OnOwnBlessing(spellID)
     elseif event == "UNIT_AURA" then
         if AurasAreSecret() then

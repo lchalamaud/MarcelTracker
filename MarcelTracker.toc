@@ -6,16 +6,20 @@
 ## SavedVariables: MarcelTrackerDB
 
 MarcelTracker.lua
+Casts.lua
 Widgets\NineSlice.lua
 Widgets\Movable.lua
 Widgets\Border.lua
 Widgets\TimerBar.lua
 Widgets\IconGroup.lua
 Widgets\AlertIcon.lua
+Widgets\BuffIcon.lua
 Zones\Zone.lua
 Zones\Reminders.lua
+Zones\ShortBuffs.lua
 Config\Controls.lua
 Config\Window.lua
 Trackers\PaladinSeal.lua
 Trackers\PaladinAura.lua
 Trackers\PaladinBlessing.lua
+Trackers\ShortBuffs.lua

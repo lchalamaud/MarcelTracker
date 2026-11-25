@@ -18,9 +18,11 @@ Cloner ce repo dans `World of Warcraft/_forever_/Interface/AddOns/MarcelTracker`
 - **Sceaux (paladin)** : barre qui se vide pendant la durée du sceau actif, avec l'icône à gauche, le nom au centre et le temps restant à droite.
 - **Aura (paladin)** : icône « Aura » qui apparaît et se secoue dès qu'aucune aura du paladin n'est active ; rien n'est affiché tant qu'une aura est en place.
 - **Bénédiction (paladin)** : icône « Béné » qui apparaît dès que le personnage n'a plus de bénédiction.
+- **Buffs courts** : tant que le personnage a Bénédiction de liberté, Protection divine (paladin), Bénédiction de protection ou Forme de pierre (nain), son icône s'affiche avec le temps restant ; un balayage circulaire l'efface au fil du temps. En combat, ceux lancés par le joueur lui-même sont toujours suivis ; ceux reçus d'un autre joueur seulement si le client laisse lire l'aura.
 
 ## Zones
 
 Les icônes s'affichent dans des zones. Chaque zone a sa propre page de configuration : ce qu'elle affiche, puis la taille, l'opacité, la bordure et la position de ses icônes, communes à toute la zone.
 
 - **Rappels** : les buffs manquants (aura, bénédiction).
+- **Buffs courts** : les protections de quelques secondes, avec leur temps restant. Pensée pour être posée sur le personnage ou juste au-dessus (grande icône transparente ou petite icône).

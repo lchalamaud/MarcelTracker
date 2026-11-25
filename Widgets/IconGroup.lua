@@ -1,9 +1,9 @@
 local addonName, ns = ...
 
--- Icon group: a row of alert icons (Widgets/AlertIcon.lua) sharing one saved
--- position. Only the icons currently shown take room: they sit side by side,
--- in the order they joined the group, and the row is centred on the position
--- of the group. Icons may differ in size: the row is as tall as the largest.
+-- Icon group: a row of icons (Widgets/AlertIcon.lua, Widgets/BuffIcon.lua)
+-- sharing one saved position. Only the icons currently shown take room: they
+-- sit side by side, in the order they joined the group, and the row is
+-- centred on the position of the group. Icons may differ in size: the row is as tall as the largest.
 --
 -- The group is what is moved (drag and drop while unlocked, X/Y offsets), see
 -- Widgets/Movable.lua. A display zone (Zones/Zone.lua) is built on a group.
@@ -59,7 +59,8 @@ function IconGroup:Layout()
             icon.anchor:ClearAllPoints()
             icon.anchor:SetPoint("LEFT", self.anchor, "LEFT", x, 0)
             x = x + icon:GetSize() + SPACING
-            icon:UpdateShake() -- restarted together, so the icons sway in sync
+            -- Alert icons: restarted together, so that they sway in sync
+            if icon.UpdateShake then icon:UpdateShake() end
         end
     end
 
