@@ -23,6 +23,8 @@ local CONTENT_WIDTH = 420
 local LIST_WIDTH = 140
 local TOP_HEIGHT = 96 -- title, lock button, page name
 local MAX_SCROLL_HEIGHT = 480
+local SCROLLBAR_WIDTH = 6 -- fits in the right PADDING
+local MIN_THUMB_HEIGHT = 20
 local DEFAULT_POSITION = { "CENTER", "CENTER", 0, 0 }
 
 local CONTENT_HEADER = { type = "header", label = "Contenu" }
@@ -144,6 +146,23 @@ local function UpdateLockButton()
     end
 end
 
+-- Sizes the scroll bar to the page: thumb proportional to the visible part,
+-- hidden when the whole page fits.
+local function UpdateScrollBar(panel)
+    local bar = window.scrollBar
+    local visible = window.scroll:GetHeight()
+    local total = panel:GetHeight()
+    local maxScroll = math.max(0, total - visible)
+    bar:SetMinMaxValues(0, maxScroll)
+    bar:SetValue(0)
+    if maxScroll > 0 then
+        bar:GetThumbTexture():SetHeight(math.max(MIN_THUMB_HEIGHT, visible * visible / total))
+        bar:Show()
+    else
+        bar:Hide()
+    end
+end
+
 local function SelectPage(page)
     Controls.ClosePopup()
     if currentPage and panels[currentPage] then
@@ -152,12 +171,9 @@ local function SelectPage(page)
     currentPage = page
 
     local panel = panels[page]
-    if not panel then
-        panel = BuildPanel(window.scroll, page)
-        panels[page] = panel
-    end
     window.scroll:SetScrollChild(panel)
     window.scroll:SetVerticalScroll(0)
+    UpdateScrollBar(panel)
     panel:Show()
     panel:Refresh()
 
@@ -169,10 +185,6 @@ local function SelectPage(page)
             button:UnlockHighlight()
         end
     end
-
-    local scrollHeight = math.min(panel:GetHeight(), MAX_SCROLL_HEIGHT)
-    window.scroll:SetHeight(scrollHeight)
-    window:SetHeight(TOP_HEIGHT + scrollHeight + PADDING)
 end
 
 local function CreateWindow()
@@ -265,15 +277,54 @@ local function CreateWindow()
     scroll:SetPoint("TOPLEFT", PADDING + listOffset, -TOP_HEIGHT)
     scroll:SetSize(CONTENT_WIDTH, 1)
     scroll:EnableMouseWheel(true)
-    scroll:SetScript("OnMouseWheel", function(self, delta)
-        local child = self:GetScrollChild()
-        if not child then return end
-        local maxScroll = math.max(0, child:GetHeight() - self:GetHeight())
-        local value = math.max(0, math.min(maxScroll, self:GetVerticalScroll() - delta * 40))
-        Controls.ClosePopup()
-        self:SetVerticalScroll(value)
-    end)
     window.scroll = scroll
+
+    -- Scroll bar in the right margin, shown only on pages taller than the
+    -- options area. It drives the scrolling: the wheel moves it too, and it
+    -- clamps the value to the page.
+    local scrollBar = CreateFrame("Slider", nil, window)
+    scrollBar:SetOrientation("VERTICAL")
+    scrollBar:SetWidth(SCROLLBAR_WIDTH)
+    scrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 4, 0)
+    scrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 4, 0)
+    scrollBar:EnableMouse(true)
+    scrollBar:SetMinMaxValues(0, 0)
+    scrollBar:Hide()
+
+    local track = scrollBar:CreateTexture(nil, "BACKGROUND")
+    track:SetAllPoints()
+    track:SetColorTexture(1, 1, 1, 0.08)
+    local thumb = scrollBar:CreateTexture(nil, "ARTWORK")
+    thumb:SetWidth(SCROLLBAR_WIDTH)
+    thumb:SetColorTexture(1, 1, 1, 0.35)
+    scrollBar:SetThumbTexture(thumb)
+
+    scrollBar:SetScript("OnValueChanged", function(_, value)
+        Controls.ClosePopup()
+        scroll:SetVerticalScroll(value)
+    end)
+    scroll:SetScript("OnMouseWheel", function(_, delta)
+        scrollBar:SetValue(scrollBar:GetValue() - delta * 40)
+    end)
+    window.scrollBar = scrollBar
+
+    -- Every page is built up front so the window gets a fixed size, that of
+    -- the tallest page (or of the page list, if taller): switching pages
+    -- must not resize it.
+    local tallest = 0
+    for _, page in ipairs(pages) do
+        local panel = BuildPanel(scroll, page)
+        panel:Hide()
+        panels[page] = panel
+        tallest = math.max(tallest, panel:GetHeight())
+    end
+    if hasList then
+        -- the list starts 24px above the options area, one button every 24px
+        tallest = math.max(tallest, #pages * 24 - 24)
+    end
+    local scrollHeight = math.min(tallest, MAX_SCROLL_HEIGHT)
+    scroll:SetHeight(math.max(scrollHeight, 1))
+    window:SetHeight(TOP_HEIGHT + scrollHeight + PADDING)
 
     -- While the window is open the trackers show an example of themselves.
     -- Closing it ends the preview and locks the bars where they are.
