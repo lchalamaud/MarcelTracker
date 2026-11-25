@@ -1,8 +1,9 @@
 local addonName, ns = ...
 
 -- Paladin blessing tracker: nothing is shown while the player has a paladin
--- blessing, whoever cast it; as soon as there is none, a blessing icon
--- labelled "Béné" pops up and shakes until a blessing is back.
+-- blessing; as soon as there is none, a blessing icon labelled "Béné" pops
+-- up and shakes until a blessing is back. With the "ownOnly" setting, only
+-- the blessings cast by the player count; otherwise anyone's do.
 --
 -- Out of combat the player's buffs are the source of truth, matched by name:
 -- each blessing is remembered by its aura instance ID with its expiry time,
@@ -11,7 +12,8 @@ local addonName, ns = ...
 -- read. The last known state is kept, and updated by
 --   * UNIT_AURA's update info, as far as it is readable: a remembered
 --     instance ID that is removed is a blessing gone (expired, dispelled,
---     cancelled), an added aura whose name is readable may be a new one;
+--     cancelled), an added aura whose name is readable may be a new one
+--     (with "ownOnly", only if its caster is readable and is the player);
 --   * the expiry times, checked by a timer;
 --   * the player's own casts of a blessing that reach them (cast on
 --     themselves, auto self-cast while targeting an enemy, greater blessing on
@@ -74,13 +76,26 @@ local function ReadExpiration(expiration)
     return expiration
 end
 
--- The i-th player buff as an AuraData-like table, or nil.
--- Only call when auras are readable.
-local function GetPlayerBuff(index)
-    if GetAuraDataByIndex then
-        return GetAuraDataByIndex("player", index, "HELPFUL")
+-- Whether an aura is known to come from the player. False when it cannot be
+-- told (secret values).
+local function IsOwnAura(aura)
+    local fromPlayer = aura.isFromPlayerOrPlayerPet
+    if Readable(fromPlayer) and type(fromPlayer) == "boolean" then
+        return fromPlayer
     end
-    local name, _, _, _, duration, expirationTime, _, _, _, spellId = UnitBuff("player", index)
+    local source = aura.sourceUnit
+    return Readable(source) and source == "player"
+end
+
+-- The i-th player buff as an AuraData-like table, or nil. With `ownOnly`,
+-- only the buffs cast by the player are listed.
+-- Only call when auras are readable.
+local function GetPlayerBuff(index, ownOnly)
+    if GetAuraDataByIndex then
+        return GetAuraDataByIndex("player", index, ownOnly and "HELPFUL|PLAYER" or "HELPFUL")
+    end
+    local name, _, _, _, duration, expirationTime, _, _, _, spellId =
+        UnitBuff("player", index, ownOnly and "PLAYER" or nil)
     if not name then return nil end
     return { name = name, duration = duration, expirationTime = expirationTime, spellId = spellId }
 end
@@ -88,10 +103,11 @@ end
 local Tracker = { key = "paladinBlessing", name = "Bénédiction" }
 
 -- Settings (db.settings). The appearance of the icon is that of the zone.
-Tracker.defaults = { enabled = true }
+Tracker.defaults = { enabled = true, ownOnly = true }
 
 Tracker.options = {
     { type = "toggle", key = "enabled", label = "Rappel de bénédiction", half = true },
+    { type = "toggle", key = "ownOnly", label = "Seulement mes bénédictions", half = true },
 }
 
 function Tracker:ShouldLoad()
@@ -115,7 +131,7 @@ end
 function Tracker:ScanBlessings()
     self:ResetState(true)
     for index = 1, 40 do
-        local aura = GetPlayerBuff(index)
+        local aura = GetPlayerBuff(index, self.settings.ownOnly)
         if not aura then break end
         if IsBlessingName(aura.name) then
             local id = aura.auraInstanceID
@@ -145,7 +161,8 @@ function Tracker:ApplyAuraUpdate(info)
     local added = info.addedAuras
     if type(added) == "table" and not issecrettable(added) then
         for _, aura in ipairs(added) do
-            if type(aura) == "table" and not issecrettable(aura) and IsBlessingName(aura.name) then
+            if type(aura) == "table" and not issecrettable(aura) and IsBlessingName(aura.name)
+                and (not self.settings.ownOnly or IsOwnAura(aura)) then
                 local id = aura.auraInstanceID
                 if Readable(id) then
                     self.auras[id] = ReadExpiration(aura.expirationTime)
