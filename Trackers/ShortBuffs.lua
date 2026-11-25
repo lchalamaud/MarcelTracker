@@ -166,8 +166,15 @@ end
 -- Applies UNIT_AURA's update info while auras are secret, as far as it can be
 -- read; anything unreadable leaves the state as it is.
 function Tracker:ApplyAuraUpdate(info)
-    if type(info) ~= "table" or issecrettable(info) then return end
+    if type(info) ~= "table" or issecrettable(info) then
+        ns.Debug("buffs courts: UNIT_AURA, infos illisibles", type(info))
+        return
+    end
     local now = GetTime()
+    ns.Debug("buffs courts: UNIT_AURA, mise à jour complète", info.isFullUpdate,
+        "ajouts", type(info.addedAuras) == "table" and not issecrettable(info.addedAuras) and #info.addedAuras or "illisibles",
+        "retraits", type(info.removedAuraInstanceIDs) == "table" and not issecrettable(info.removedAuraInstanceIDs)
+            and #info.removedAuraInstanceIDs or "illisibles")
 
     local removed = info.removedAuraInstanceIDs
     if type(removed) == "table" and not issecrettable(removed) then
@@ -187,6 +194,8 @@ function Tracker:ApplyAuraUpdate(info)
         if type(aura) == "table" and not issecrettable(aura) then
             local id = Readable(aura.auraInstanceID) and aura.auraInstanceID or nil
             local buff = self:FindBuff(aura.spellId, aura.name)
+            ns.Debug("  ajout: instance", aura.auraInstanceID, "sort", aura.spellId, "nom", aura.name,
+                "bénéfique", aura.isHelpful, "fin", aura.expirationTime, "->", buff and buff.key)
             if buff then
                 local spellID = ReadableNumber(aura.spellId) and aura.spellId or next(buff.spells)
                 local duration = self:GetDuration(buff, spellID)
@@ -212,6 +221,7 @@ function Tracker:ApplyAuraUpdate(info)
     if #unknown == 1 then
         local cast = self.pendingCast
         if cast and now - cast.time <= CORRELATION_WINDOW then
+            ns.Debug("  aura", unknown[1], "reliée au sort lancé:", cast.key)
             self:BindAura(cast.key, unknown[1])
             self.pendingCast = nil
         else
@@ -224,13 +234,22 @@ end
 
 -- The player cast a spell while auras are secret.
 function Tracker:OnOwnCast(spellID, target)
-    if not ReadableNumber(spellID) then return end
-    local buff = self:FindBuff(spellID, GetSpellName and GetSpellName(spellID))
+    if not ReadableNumber(spellID) then
+        ns.Debug("buffs courts: sort lancé, identifiant illisible", spellID)
+        return
+    end
+    local spellName = GetSpellName and GetSpellName(spellID)
+    local buff = self:FindBuff(spellID, spellName)
+    ns.Debug("buffs courts: sort lancé", spellID, spellName, "cible", target, "->", buff and buff.key)
     if not buff or not self.settings[buff.key] then return end
-    if not buff.selfOnly and not ns.CastReachesPlayer(target, false) then return end
+    if not buff.selfOnly and not ns.CastReachesPlayer(target, false) then
+        ns.Debug("  cible autre que soi: ignoré")
+        return
+    end
 
     local now = GetTime()
     local duration = self:GetDuration(buff, spellID)
+    ns.Debug("  affiché pour", duration, "s")
     self:SetBuff(buff, duration, now + duration, GetSpellTexture and GetSpellTexture(spellID))
 
     -- Its aura may have been announced just before the cast event, or come next
@@ -295,7 +314,10 @@ function Tracker:OnEvent(event, ...)
         local target = self.castTarget
         self.castTarget = nil
         -- Out of combat UNIT_AURA tells it all
-        if not AurasAreSecret() then return end
+        if not AurasAreSecret() then
+            ns.Debug("buffs courts: sort lancé hors combat", spellID, "auras lisibles")
+            return
+        end
         self:OnOwnCast(spellID, target)
     elseif event == "UNIT_AURA" then
         if AurasAreSecret() then

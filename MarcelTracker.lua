@@ -10,6 +10,28 @@ local function Print(msg)
 end
 ns.Print = Print
 
+-- Debug mode (/marcel debug, not saved): trackers report in the chat what
+-- they receive, to find out what the client lets us read in combat.
+ns.debug = false
+
+local issecret = issecretvalue or function() return false end
+
+-- A value as text for a debug message, without touching a secret one.
+function ns.DebugValue(value)
+    if issecret(value) then return "<secret>" end
+    return tostring(value)
+end
+
+-- Prints its arguments, turned into text with ns.DebugValue, while in debug mode.
+function ns.Debug(...)
+    if not ns.debug then return end
+    local parts = {}
+    for i = 1, select("#", ...) do
+        parts[i] = ns.DebugValue((select(i, ...)))
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("|cff999999MarcelTracker debug|r " .. table.concat(parts, " "))
+end
+
 -- Tracker registry. Each tracker is a table with:
 --   key              unique string, also the name of its SavedVariables sub-table
 --   ShouldLoad()     optional, return false to skip this tracker (wrong class...)
@@ -131,6 +153,7 @@ local function PrintHelp()
     Print("/marcel unlock - déverrouiller les barres pour les déplacer")
     Print("/marcel lock - verrouiller les barres")
     Print("/marcel reset - remettre les barres à leur position par défaut")
+    Print("/marcel debug - afficher dans le chat ce que l'addon détecte (diagnostic)")
 end
 
 SLASH_MARCELTRACKER1 = "/marcel"
@@ -139,6 +162,9 @@ SlashCmdList.MARCELTRACKER = function(msg)
     local cmd = strtrim(msg or ""):lower()
     if cmd == "config" then
         ns.ToggleConfig()
+    elseif cmd == "debug" then
+        ns.debug = not ns.debug
+        Print(ns.debug and "diagnostic activé." or "diagnostic désactivé.")
     elseif cmd == "unlock" or cmd == "lock" or cmd == "reset" then
         if #ns.activeTrackers == 0 then
             Print("aucun tracker actif pour ce personnage.")
