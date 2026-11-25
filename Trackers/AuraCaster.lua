@@ -1,7 +1,8 @@
 local addonName, ns = ...
 
--- Aura caster in tooltips: adds the full name of the caster of a buff or
--- debuff to its tooltip, right-aligned and in the caster's class colour.
+-- Aura caster in tooltips: adds a line to the tooltip of a buff or debuff,
+-- "Caster" on the left and the caster's full name on the right, in their
+-- class colour.
 -- Covers every aura tooltip shown through GameTooltip (buff frame, unit
 -- frames...). Its option sits on the "Divers" page of the config window.
 --
@@ -13,6 +14,8 @@ local addonName, ns = ...
 -- In combat the aura data may be secret (see Trackers/PaladinSeal.lua): the
 -- line is then left out rather than risking an error.
 
+local LABEL = "Caster"
+local LABEL_COLOR = { 0.8, 0.8, 0.8 }
 local DEFAULT_COLOR = { 1, 1, 1 } -- caster who is not a player
 
 local issecret = issecretvalue or function() return false end
@@ -111,9 +114,10 @@ function Tracker:AddCasterLine(tooltip, getSource, unit, key, filter)
         return
     end
     if not text then return end
-    -- The right column of a double line is right-aligned
-    local r, g, b = DEFAULT_COLOR[1], DEFAULT_COLOR[2], DEFAULT_COLOR[3]
-    tooltip:AddDoubleLine(" ", text, r, g, b, r, g, b)
+    -- A double line: left column left-aligned, right column right-aligned
+    tooltip:AddDoubleLine(LABEL, text,
+        LABEL_COLOR[1], LABEL_COLOR[2], LABEL_COLOR[3],
+        DEFAULT_COLOR[1], DEFAULT_COLOR[2], DEFAULT_COLOR[3])
     tooltip:Show() -- resize to the new line
 end
 
