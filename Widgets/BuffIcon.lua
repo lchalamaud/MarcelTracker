@@ -22,6 +22,8 @@ local DECIMALS_BELOW = 3   -- seconds left under which a decimal is shown
 local LOW_TIME_COLOR = { 1, 0.7, 0.1 }
 local QUESTION_MARK = 134400
 
+local issecret = issecretvalue or function() return false end
+
 ns.BuffIconDefaults = {
     size = 40,
     alpha = 1,
@@ -193,13 +195,15 @@ end
 -- Shows the icon. With a duration, the timer runs until `expiresAt` (a
 -- GetTime() value), then the icon hides itself and calls `onExpire`.
 -- Without one, the icon stays as it is, with no time and no sweep.
--- Calling it again with the same values changes nothing.
+-- Calling it again with the same values changes nothing. The texture may be
+-- a secret value (in combat): it is then only handed to the engine.
 function BuffIcon:Start(texture, duration, expiresAt)
     texture = texture or QUESTION_MARK
     if not (duration and duration > 0 and expiresAt) then
         duration, expiresAt = nil, nil
     end
-    if self.frame:IsShown() and texture == self.texture
+    local sameTexture = not issecret(texture) and not issecret(self.texture) and texture == self.texture
+    if self.frame:IsShown() and sameTexture
         and duration == self.duration and expiresAt == self.expiresAt then
         return
     end
