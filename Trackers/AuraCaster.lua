@@ -15,7 +15,10 @@ local addonName, ns = ...
 -- line is then left out rather than risking an error.
 
 local LABEL = "Caster"
-local LABEL_COLOR = { 0.8, 0.8, 0.8 }
+-- Yellow of the tooltip's aura name and time left
+local LABEL_COLOR = NORMAL_FONT_COLOR
+    and { NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b }
+    or { 1, 0.82, 0 }
 local DEFAULT_COLOR = { 1, 1, 1 } -- caster who is not a player
 
 local issecret = issecretvalue or function() return false end
