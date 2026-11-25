@@ -6,19 +6,16 @@ local addonName, ns = ...
 --
 -- Out of combat the player's buffs are the source of truth, matched by spell
 -- ID or by name; the duration of each spell is remembered in SavedVariables.
--- In combat auras are secret (see Trackers/PaladinSeal.lua) and no buff is
--- read. The state is then updated by
+-- In combat auras are secret (see Trackers/PaladinSeal.lua): on Forever even
+-- UNIT_AURA's update info is unreadable, so no buff can be seen. The state
+-- is then updated by
 --   * the player's own casts that reach them (UNIT_SPELLCAST_SUCCEEDED, whose
 --     spell ID is readable), timed with the remembered duration;
---   * UNIT_AURA's update info, as far as it is readable: an added aura whose
---     name or spell ID is readable, and the removal of a known aura instance
---     (BoP cancelled, dispel...). An aura added with nothing readable but its
---     instance ID, alone and right next to an own cast of a tracked buff, is
---     taken to be that buff, so that its early removal is seen too;
 --   * the expiry times, checked by the icons themselves;
 --   * death.
--- A buff received from someone else in combat is only seen if the client
--- lets its name or spell ID be read.
+-- So in combat a buff received from someone else is not shown, and one that
+-- ends early (BoP cancelled, dispel) stays until its expected end. Leaving
+-- combat resyncs from the auras.
 
 -- Buffs, in display order. `spells`: known spell IDs, with the duration to
 -- use until the real one has been seen. `selfOnly`: can only be cast on
@@ -56,11 +53,9 @@ local BUFFS = {
 
 local DEFAULT_DURATION = 10
 local DEMO_DURATION = 8      -- length of one loop of the example icons
-local CORRELATION_WINDOW = 0.5 -- seconds between a cast and its aura
 local NO_EXPIRY = math.huge
 
 local issecret = issecretvalue or function() return false end
-local issecrettable = issecrettable or function() return false end
 local AurasAreSecret = C_Secrets and C_Secrets.ShouldAurasBeSecret or function() return false end
 local GetAuraDataByIndex = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
@@ -125,14 +120,13 @@ function Tracker:GetDuration(buff, spellID)
     return self.db.durations[spellID] or buff.spells[spellID] or DEFAULT_DURATION
 end
 
--- State of each buff: self.state[key] = { duration, expiresAt, texture,
--- auraID }. expiresAt is NO_EXPIRY when unknown; auraID is nil when unknown.
-function Tracker:SetBuff(buff, duration, expiresAt, texture, auraID)
+-- State of each buff: self.state[key] = { duration, expiresAt, texture }.
+-- expiresAt is NO_EXPIRY when unknown.
+function Tracker:SetBuff(buff, duration, expiresAt, texture)
     self.state[buff.key] = {
         duration = duration,
         expiresAt = expiresAt,
         texture = texture or DefaultTexture(buff),
-        auraID = auraID,
     }
 end
 
@@ -150,85 +144,8 @@ function Tracker:Scan()
             elseif ReadableNumber(aura.spellId) then
                 self.db.durations[aura.spellId] = duration
             end
-            local auraID = aura.auraInstanceID
-            self:SetBuff(buff, duration, expiresAt, Readable(aura.icon) and aura.icon or nil,
-                Readable(auraID) and auraID or nil)
+            self:SetBuff(buff, duration, expiresAt, Readable(aura.icon) and aura.icon or nil)
         end
-    end
-end
-
--- Links an aura instance to the buff the player has just cast on themselves.
-function Tracker:BindAura(key, auraID)
-    local state = self.state[key]
-    if state and not state.auraID then state.auraID = auraID end
-end
-
--- Applies UNIT_AURA's update info while auras are secret, as far as it can be
--- read; anything unreadable leaves the state as it is.
-function Tracker:ApplyAuraUpdate(info)
-    if type(info) ~= "table" or issecrettable(info) then
-        ns.Debug("buffs courts: UNIT_AURA, infos illisibles", type(info))
-        return
-    end
-    local now = GetTime()
-    ns.Debug("buffs courts: UNIT_AURA, mise à jour complète", info.isFullUpdate,
-        "ajouts", type(info.addedAuras) == "table" and not issecrettable(info.addedAuras) and #info.addedAuras or "illisibles",
-        "retraits", type(info.removedAuraInstanceIDs) == "table" and not issecrettable(info.removedAuraInstanceIDs)
-            and #info.removedAuraInstanceIDs or "illisibles")
-
-    local removed = info.removedAuraInstanceIDs
-    if type(removed) == "table" and not issecrettable(removed) then
-        for _, id in ipairs(removed) do
-            if Readable(id) then
-                for key, state in pairs(self.state) do
-                    if state.auraID == id then self.state[key] = nil end
-                end
-            end
-        end
-    end
-
-    local added = info.addedAuras
-    if type(added) ~= "table" or issecrettable(added) then return end
-    local unknown = {}
-    for _, aura in ipairs(added) do
-        if type(aura) == "table" and not issecrettable(aura) then
-            local id = Readable(aura.auraInstanceID) and aura.auraInstanceID or nil
-            local buff = self:FindBuff(aura.spellId, aura.name)
-            ns.Debug("  ajout: instance", aura.auraInstanceID, "sort", aura.spellId, "nom", aura.name,
-                "bénéfique", aura.isHelpful, "fin", aura.expirationTime, "->", buff and buff.key)
-            if buff then
-                local spellID = ReadableNumber(aura.spellId) and aura.spellId or next(buff.spells)
-                local duration = self:GetDuration(buff, spellID)
-                local expiresAt = aura.expirationTime
-                if ReadableNumber(expiresAt) and expiresAt > 0 then
-                    if ReadableNumber(aura.duration) and aura.duration > 0 then duration = aura.duration end
-                else
-                    expiresAt = now + duration
-                end
-                self:SetBuff(buff, duration, expiresAt, Readable(aura.icon) and aura.icon or nil, id)
-            elseif id then
-                -- Skip what is known to be a debuff (Forbearance comes with
-                -- Divine Protection and Blessing of Protection)
-                local helpful = aura.isHelpful
-                if not (Readable(helpful) and helpful == false) then
-                    table.insert(unknown, id)
-                end
-            end
-        end
-    end
-
-    -- One unreadable aura, next to an own cast of a tracked buff: that buff
-    if #unknown == 1 then
-        local cast = self.pendingCast
-        if cast and now - cast.time <= CORRELATION_WINDOW then
-            ns.Debug("  aura", unknown[1], "reliée au sort lancé:", cast.key)
-            self:BindAura(cast.key, unknown[1])
-            self.pendingCast = nil
-        else
-            self.pendingAura = { id = unknown[1], time = now }
-        end
-    elseif #unknown > 1 then
-        self.pendingAura = nil
     end
 end
 
@@ -241,7 +158,11 @@ function Tracker:OnOwnCast(spellID, target)
     local spellName = GetSpellName and GetSpellName(spellID)
     local buff = self:FindBuff(spellID, spellName)
     ns.Debug("buffs courts: sort lancé", spellID, spellName, "cible", target, "->", buff and buff.key)
-    if not buff or not self.settings[buff.key] then return end
+    if not buff then return end
+    if not self.settings[buff.key] then
+        ns.Debug("  désactivé dans la configuration: ignoré")
+        return
+    end
     if not buff.selfOnly and not ns.CastReachesPlayer(target, false) then
         ns.Debug("  cible autre que soi: ignoré")
         return
@@ -251,15 +172,6 @@ function Tracker:OnOwnCast(spellID, target)
     local duration = self:GetDuration(buff, spellID)
     ns.Debug("  affiché pour", duration, "s")
     self:SetBuff(buff, duration, now + duration, GetSpellTexture and GetSpellTexture(spellID))
-
-    -- Its aura may have been announced just before the cast event, or come next
-    local aura = self.pendingAura
-    if aura and now - aura.time <= CORRELATION_WINDOW then
-        self:BindAura(buff.key, aura.id)
-        self.pendingAura = nil
-    else
-        self.pendingCast = { key = buff.key, time = now }
-    end
 end
 
 -- Recomputes what each icon shows right now.
@@ -320,12 +232,9 @@ function Tracker:OnEvent(event, ...)
         end
         self:OnOwnCast(spellID, target)
     elseif event == "UNIT_AURA" then
-        if AurasAreSecret() then
-            local _, info = ...
-            self:ApplyAuraUpdate(info)
-        else
-            self:Scan()
-        end
+        -- Nothing can be read from it in combat
+        if AurasAreSecret() then return end
+        self:Scan()
     elseif event == "PLAYER_DEAD" then
         self.state = {} -- buffs do not survive death
     elseif not AurasAreSecret() then
