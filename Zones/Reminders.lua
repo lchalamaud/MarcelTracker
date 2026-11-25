@@ -3,6 +3,10 @@ local addonName, ns = ...
 -- Reminder zone: the alert icons telling that a buff is missing (paladin
 -- aura, blessing...). They share the appearance of the alert icon
 -- (Widgets/AlertIcon.lua): size, opacity, shake, border.
+--
+-- The zone also holds a setting read by its trackers: "ownOnly", only the
+-- buffs cast by the player count (another paladin's aura or blessing does not
+-- hide the reminder).
 
 -- Trackers whose icons had their own appearance before zones existed, in
 -- order of preference when taking it over.
@@ -12,8 +16,11 @@ local Reminders = {
     key = "reminderGroup", -- SavedVariables of the reminder group it replaces
     name = "Rappels",
     defaultPosition = { "CENTER", "CENTER", 0, 120 },
-    defaults = {},
-    options = {},
+    defaults = { ownOnly = true },
+    options = {
+        -- Shown right after the trackers' own options, under "Contenu"
+        { type = "toggle", key = "ownOnly", label = "Seulement mes buffs" },
+    },
 }
 
 for key, value in pairs(ns.AlertIconDefaults) do
