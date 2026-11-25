@@ -7,7 +7,8 @@ local addonName, ns = ...
 -- The window has one page per display zone (Zones/Zone.lua): the options of
 -- the trackers showing icons in it ("Contenu"), then those of the zone itself
 -- (appearance, position). A tracker outside of any zone gets a page of its
--- own if it has `name` and `options`.
+-- own if it has `name` and `options`, or shares the page named by its `page`
+-- field with the other trackers naming it (e.g. "Divers").
 --
 -- Options are described in Config/Controls.lua. Each one belongs to an owner
 -- (zone or tracker): its value is read from and written to owner.db.settings,
@@ -32,7 +33,7 @@ local currentPage
 
 -- A page lists sections: { owner = zone or tracker, options = { ... } }.
 local function GetPages()
-    local pages, zonePages = {}, {}
+    local pages, zonePages, namedPages = {}, {}, {}
     for _, tracker in ipairs(ns.activeTrackers) do
         local zone = tracker.zone
         if zone then
@@ -48,9 +49,14 @@ local function GetPages()
                 table.insert(page.sections, { owner = tracker, options = tracker.options })
             end
         elseif tracker.options and tracker.name then
-            table.insert(pages, { name = tracker.name, sections = {
-                { owner = tracker, options = tracker.options },
-            } })
+            local pageName = tracker.page or tracker.name
+            local page = namedPages[pageName]
+            if not page then
+                page = { name = pageName, sections = {} }
+                namedPages[pageName] = page
+                table.insert(pages, page)
+            end
+            table.insert(page.sections, { owner = tracker, options = tracker.options })
         end
     end
 

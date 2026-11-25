@@ -46,6 +46,9 @@ end
 --                    tracker's options on the page of its zone.
 -- To appear in the config window (Config/Window.lua), a tracker also has:
 --   name             display name
+--   page             optional, for a tracker outside of any zone: name of a
+--                    page shared with other such trackers (e.g. "Divers"),
+--                    instead of a page of its own
 --   defaults         default values, merged into db.settings before Init
 --   options          list of option descriptors (see Config/Controls.lua)
 --   ApplySettings(key)  re-read db.settings after a change (key may be nil)

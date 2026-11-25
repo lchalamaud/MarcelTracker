@@ -1,8 +1,9 @@
 local addonName, ns = ...
 
--- Aura caster in tooltips: adds "Lancé par <name>" to the tooltip of a buff
--- or debuff, the name in the caster's class colour. Covers every aura tooltip
--- shown through GameTooltip (buff frame, unit frames...).
+-- Aura caster in tooltips: adds the full name of the caster of a buff or
+-- debuff to its tooltip, right-aligned and in the caster's class colour.
+-- Covers every aura tooltip shown through GameTooltip (buff frame, unit
+-- frames...). Its option sits on the "Divers" page of the config window.
 --
 -- An aura tooltip is its own tooltip type, so no OnTooltipSet script covers
 -- it: the GameTooltip setters are hooked instead (the player buff frame uses
@@ -12,8 +13,7 @@ local addonName, ns = ...
 -- In combat the aura data may be secret (see Trackers/PaladinSeal.lua): the
 -- line is then left out rather than risking an error.
 
-local LABEL = "Lancé par "
-local LABEL_COLOR = { 0.8, 0.8, 0.8 }
+local DEFAULT_COLOR = { 1, 1, 1 } -- caster who is not a player
 
 local issecret = issecretvalue or function() return false end
 local issecrettable = issecrettable or function() return false end
@@ -59,12 +59,27 @@ for method, getAura in pairs(legacy) do
     end
 end
 
--- The caster's name, in their class colour if they are a player; nil if it
--- cannot be read.
+-- Whether a value is a readable, non-empty string.
+local function ReadableString(value)
+    return Readable(value) and type(value) == "string" and value ~= ""
+end
+
+-- The full name of a unit: on Forever a character is "Firstname Surname", and
+-- the second value of UnitNameUnmodified is the surname (UnitName only gives
+-- the first name). Nil if it cannot be read.
+local function FullName(unit)
+    local first, surname = (UnitNameUnmodified or UnitName)(unit)
+    if not ReadableString(first) then return nil end
+    if ReadableString(surname) then return first .. " " .. surname end
+    return first
+end
+
+-- The caster's full name, in their class colour if they are a player; nil if
+-- it cannot be read.
 local function CasterText(source)
     if not Readable(source) or type(source) ~= "string" then return nil end
-    local name = UnitName(source)
-    if not Readable(name) or type(name) ~= "string" or name == "" then return nil end
+    local name = FullName(source)
+    if not name then return nil end
 
     if UnitIsPlayer(source) then
         local _, class = UnitClass(source)
@@ -77,12 +92,13 @@ local function CasterText(source)
     return name
 end
 
-local Tracker = { key = "auraCaster", name = "Infobulles" }
+local Tracker = { key = "auraCaster", name = "Lanceur des auras", page = "Divers" }
 
 Tracker.defaults = { enabled = true }
 
 Tracker.options = {
-    { type = "toggle", key = "enabled", label = "Afficher qui a lancé un buff ou un débuff" },
+    { type = "header", label = "Infobulles" },
+    { type = "toggle", key = "enabled", label = "Afficher le lanceur des buffs et débuffs" },
 }
 
 function Tracker:AddCasterLine(tooltip, getSource, unit, key, filter)
@@ -95,7 +111,9 @@ function Tracker:AddCasterLine(tooltip, getSource, unit, key, filter)
         return
     end
     if not text then return end
-    tooltip:AddLine(LABEL .. text, LABEL_COLOR[1], LABEL_COLOR[2], LABEL_COLOR[3])
+    -- The right column of a double line is right-aligned
+    local r, g, b = DEFAULT_COLOR[1], DEFAULT_COLOR[2], DEFAULT_COLOR[3]
+    tooltip:AddDoubleLine(" ", text, r, g, b, r, g, b)
     tooltip:Show() -- resize to the new line
 end
 
