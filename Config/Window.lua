@@ -152,10 +152,6 @@ local function SelectPage(page)
     currentPage = page
 
     local panel = panels[page]
-    if not panel then
-        panel = BuildPanel(window.scroll, page)
-        panels[page] = panel
-    end
     window.scroll:SetScrollChild(panel)
     window.scroll:SetVerticalScroll(0)
     panel:Show()
@@ -169,10 +165,6 @@ local function SelectPage(page)
             button:UnlockHighlight()
         end
     end
-
-    local scrollHeight = math.min(panel:GetHeight(), MAX_SCROLL_HEIGHT)
-    window.scroll:SetHeight(scrollHeight)
-    window:SetHeight(TOP_HEIGHT + scrollHeight + PADDING)
 end
 
 local function CreateWindow()
@@ -274,6 +266,24 @@ local function CreateWindow()
         self:SetVerticalScroll(value)
     end)
     window.scroll = scroll
+
+    -- Every page is built up front so the window gets a fixed size, that of
+    -- the tallest page (or of the page list, if taller): switching pages
+    -- must not resize it.
+    local tallest = 0
+    for _, page in ipairs(pages) do
+        local panel = BuildPanel(scroll, page)
+        panel:Hide()
+        panels[page] = panel
+        tallest = math.max(tallest, panel:GetHeight())
+    end
+    if hasList then
+        -- the list starts 24px above the options area, one button every 24px
+        tallest = math.max(tallest, #pages * 24 - 24)
+    end
+    local scrollHeight = math.min(tallest, MAX_SCROLL_HEIGHT)
+    scroll:SetHeight(math.max(scrollHeight, 1))
+    window:SetHeight(TOP_HEIGHT + scrollHeight + PADDING)
 
     -- While the window is open the trackers show an example of themselves.
     -- Closing it ends the preview and locks the bars where they are.
