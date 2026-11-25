@@ -2,9 +2,10 @@ local addonName, ns = ...
 
 -- Paladin aura tracker: nothing is shown while one of the paladin's own auras
 -- is active; as soon as there is none, an aura icon labelled "Aura" pops up
--- and shakes until an aura is cast again.
+-- and shakes until an aura is cast again. With the "ownOnly" setting off,
+-- another paladin's aura on the player hides the icon too.
 --
--- Two sources tell whether an aura is active:
+-- Two sources tell whether one of the player's own auras is active:
 --   * The shapeshift bar, where a paladin's auras live: one of its buttons is
 --     flagged active. Not an aura read, so it also works in combat.
 --   * The player's own buffs, matched by name. Only readable out of combat
@@ -13,6 +14,8 @@ local addonName, ns = ...
 -- marked as reliable the first time both agree that an aura is active. In
 -- combat the bar is trusted if it proved reliable; otherwise the last known
 -- state is kept, updated by the player's own casts and by death.
+-- Another paladin's aura is only seen out of combat: in combat the last known
+-- state is kept, until death.
 --
 -- The icon is shown in the reminder zone (Zones/Reminders.lua), which owns
 -- its position and appearance.
@@ -52,36 +55,44 @@ local function IsAuraFormActive()
     return false
 end
 
--- True if the player has an aura buff cast by themselves (another paladin's
--- aura gives a buff of the same name). Only call when auras are readable.
-local function HasOwnAuraBuff()
+-- Number of aura buffs on the player: cast by themselves with `own`
+-- (another paladin's aura gives a buff of the same name), by anyone
+-- otherwise. Only call when auras are readable.
+local function CountAuraBuffs(own)
+    local count = 0
     for index = 1, 40 do
         local name
         if GetAuraDataByIndex then
-            local aura = GetAuraDataByIndex("player", index, "HELPFUL|PLAYER")
+            local aura = GetAuraDataByIndex("player", index, own and "HELPFUL|PLAYER" or "HELPFUL")
             name = aura and aura.name
         else
-            name = UnitBuff("player", index, "PLAYER")
+            name = UnitBuff("player", index, own and "PLAYER" or nil)
         end
-        if not name then return false end
-        if IsAuraName(name) then return true end
+        if not name then break end
+        if IsAuraName(name) then count = count + 1 end
     end
-    return false
+    return count
 end
 
 local Tracker = { key = "paladinAura", name = "Aura de paladin" }
 
 -- Settings (db.settings). The appearance of the icon is that of the zone.
-Tracker.defaults = { enabled = true }
+Tracker.defaults = { enabled = true, ownOnly = true }
 
 Tracker.options = {
     { type = "toggle", key = "enabled", label = "Rappel d'aura", half = true },
+    { type = "toggle", key = "ownOnly", label = "Seulement mes auras", half = true },
 }
 
 function Tracker:ShouldLoad()
     local _, class = UnitClass("player")
     return class == "PALADIN"
 end
+
+-- State, kept for when auras are secret:
+--   self.ownAura    one of the player's own auras is active
+--   self.otherAura  another paladin's aura buff is on the player
+-- Each is nil while not known (e.g. interface reloaded in combat).
 
 -- Returns true or false, or nil when the state is not known (e.g. interface
 -- reloaded in combat on a client whose shapeshift bar is not reliable).
@@ -90,15 +101,19 @@ function Tracker:HasAura()
 
     if AurasAreSecret() then
         if form ~= nil and self.db.formsReliable then
-            self.hasAura = form
+            self.ownAura = form
         end
-        return self.hasAura
+    else
+        local own = CountAuraBuffs(true)
+        if own > 0 and form then self.db.formsReliable = true end
+        self.ownAura = own > 0 or form == true
+        self.otherAura = CountAuraBuffs(false) > own
     end
 
-    local buff = HasOwnAuraBuff()
-    if buff and form then self.db.formsReliable = true end
-    self.hasAura = buff or form == true
-    return self.hasAura
+    if self.settings.ownOnly then return self.ownAura end
+    if self.ownAura or self.otherAura then return true end
+    if self.ownAura == nil or self.otherAura == nil then return nil end
+    return false
 end
 
 -- Recomputes whether the icon should be shown right now. An unknown state
@@ -120,9 +135,11 @@ function Tracker:OnEvent(event, ...)
         local _, _, spellID = ...
         if not spellID or issecret(spellID) then return end
         if not IsAuraName(GetSpellName and GetSpellName(spellID)) then return end
-        self.hasAura = true
+        self.ownAura = true
     elseif event == "PLAYER_DEAD" then
-        self.hasAura = false -- auras do not survive death
+        -- auras do not survive death
+        self.ownAura = false
+        self.otherAura = false
     end
     self:Refresh()
 end
