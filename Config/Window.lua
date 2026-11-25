@@ -2,12 +2,17 @@ local addonName, ns = ...
 
 -- Config window: a standalone, draggable frame (usable in combat, and without
 -- running any of our code inside Blizzard's Settings panel), built from the
--- option lists declared by the active trackers.
+-- option lists declared by the display zones and the active trackers.
 --
--- A tracker shows up here if it has `name` and `options` (see
--- Config/Controls.lua for the option descriptors). Values are read from and
--- written to tracker.db.settings; after each change tracker:ApplySettings(key)
--- is called so the change is visible immediately.
+-- The window has one page per display zone (Zones/Zone.lua): the options of
+-- the trackers showing icons in it ("Contenu"), then those of the zone itself
+-- (appearance, position). A tracker outside of any zone gets a page of its
+-- own if it has `name` and `options`.
+--
+-- Options are described in Config/Controls.lua. Each one belongs to an owner
+-- (zone or tracker): its value is read from and written to owner.db.settings,
+-- and after each change owner:ApplySettings(key) is called so the change is
+-- visible immediately.
 
 local Controls = ns.Controls
 
@@ -15,38 +20,51 @@ local FRAME_NAME = "MarcelTrackerConfigFrame" -- global name needed by UISpecial
 local PADDING = 14
 local CONTENT_WIDTH = 420
 local LIST_WIDTH = 140
-local TOP_HEIGHT = 96 -- title, lock button, tracker name
+local TOP_HEIGHT = 96 -- title, lock button, page name
 local MAX_SCROLL_HEIGHT = 480
 local DEFAULT_POSITION = { "CENTER", "CENTER", 0, 0 }
 
-local window
-local panels = {} -- tracker -> panel
-local currentTracker
+local CONTENT_HEADER = { type = "header", label = "Contenu" }
 
-local function GetConfigurableTrackers()
-    local list = {}
+local window
+local panels = {} -- page -> panel
+local currentPage
+
+-- A page lists sections: { owner = zone or tracker, options = { ... } }.
+local function GetPages()
+    local pages, zonePages = {}, {}
     for _, tracker in ipairs(ns.activeTrackers) do
-        if tracker.options and tracker.name then
-            table.insert(list, tracker)
+        local zone = tracker.zone
+        if zone then
+            local page = zonePages[zone]
+            if not page then
+                page = { name = zone.name, sections = {
+                    { owner = zone, options = { CONTENT_HEADER } },
+                } }
+                zonePages[zone] = page
+                table.insert(pages, page)
+            end
+            if tracker.options then
+                table.insert(page.sections, { owner = tracker, options = tracker.options })
+            end
+        elseif tracker.options and tracker.name then
+            table.insert(pages, { name = tracker.name, sections = {
+                { owner = tracker, options = tracker.options },
+            } })
         end
     end
-    return list
+
+    -- The zone's own options come after the content
+    for zone, page in pairs(zonePages) do
+        table.insert(page.sections, { owner = zone, options = zone.options })
+    end
+    return pages
 end
 
--- Builds the option controls of a tracker, laid out top to bottom. Options
--- flagged `half` are packed two per row.
-local function BuildPanel(parent, tracker)
-    local panel = CreateFrame("Frame", nil, parent)
-    panel.controls = {}
-
-    local settings = tracker.db.settings
-    local ctx = { tracker = tracker, settings = settings }
-
-    function panel:Refresh()
-        for _, control in ipairs(self.controls) do
-            control:Refresh()
-        end
-    end
+-- Gives the controls of a section access to the settings of its owner.
+local function CreateContext(panel, owner)
+    local settings = owner.db.settings
+    local ctx = { owner = owner, settings = settings }
     function ctx.refresh()
         panel:Refresh()
     end
@@ -55,13 +73,36 @@ local function BuildPanel(parent, tracker)
     end
     function ctx.set(key, value)
         settings[key] = value
-        tracker:ApplySettings(key)
+        owner:ApplySettings(key)
         panel:Refresh()
+    end
+    return ctx
+end
+
+-- Builds the option controls of a page, laid out top to bottom. Options
+-- flagged `half` are packed two per row, across sections too.
+local function BuildPanel(parent, page)
+    local panel = CreateFrame("Frame", nil, parent)
+    panel.controls = {}
+
+    function panel:Refresh()
+        for _, control in ipairs(self.controls) do
+            control:Refresh()
+        end
+    end
+
+    local entries = {}
+    for _, section in ipairs(page.sections) do
+        local ctx = CreateContext(panel, section.owner)
+        for _, opt in ipairs(section.options) do
+            table.insert(entries, { opt = opt, ctx = ctx })
+        end
     end
 
     local halfWidth = CONTENT_WIDTH / 2
     local y, column = 0, 0
-    for _, opt in ipairs(tracker.options) do
+    for _, entry in ipairs(entries) do
+        local opt, ctx = entry.opt, entry.ctx
         local factory = Controls[opt.type]
         if factory then
             if not opt.half and column == 1 then
@@ -97,26 +138,26 @@ local function UpdateLockButton()
     end
 end
 
-local function SelectTracker(tracker)
+local function SelectPage(page)
     Controls.ClosePopup()
-    if currentTracker and panels[currentTracker] then
-        panels[currentTracker]:Hide()
+    if currentPage and panels[currentPage] then
+        panels[currentPage]:Hide()
     end
-    currentTracker = tracker
+    currentPage = page
 
-    local panel = panels[tracker]
+    local panel = panels[page]
     if not panel then
-        panel = BuildPanel(window.scroll, tracker)
-        panels[tracker] = panel
+        panel = BuildPanel(window.scroll, page)
+        panels[page] = panel
     end
     window.scroll:SetScrollChild(panel)
     window.scroll:SetVerticalScroll(0)
     panel:Show()
     panel:Refresh()
 
-    window.trackerName:SetText(tracker.name)
+    window.pageName:SetText(page.name)
     for _, button in ipairs(window.listButtons) do
-        if button.tracker == tracker then
+        if button.page == page then
             button:LockHighlight()
         else
             button:UnlockHighlight()
@@ -129,8 +170,8 @@ local function SelectTracker(tracker)
 end
 
 local function CreateWindow()
-    local trackers = GetConfigurableTrackers()
-    local hasList = #trackers > 1
+    local pages = GetPages()
+    local hasList = #pages > 1
     local listOffset = hasList and (LIST_WIDTH + PADDING) or 0
 
     window = CreateFrame("Frame", FRAME_NAME, UIParent)
@@ -195,23 +236,23 @@ local function CreateWindow()
     hint:SetJustifyH("LEFT")
     window.hint = hint
 
-    -- Tracker list, only when there is more than one
+    -- Page list, only when there is more than one
     window.listButtons = {}
     if hasList then
-        for index, tracker in ipairs(trackers) do
+        for index, page in ipairs(pages) do
             local button = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
             button:SetSize(LIST_WIDTH, 22)
             button:SetPoint("TOPLEFT", PADDING, -(TOP_HEIGHT - 24) - (index - 1) * 24)
-            button:SetText(tracker.name)
-            button.tracker = tracker
-            button:SetScript("OnClick", function(self) SelectTracker(self.tracker) end)
+            button:SetText(page.name)
+            button.page = page
+            button:SetScript("OnClick", function(self) SelectPage(self.page) end)
             window.listButtons[index] = button
         end
     end
 
-    local trackerName = window:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
-    trackerName:SetPoint("TOPLEFT", PADDING + listOffset, -(TOP_HEIGHT - 24))
-    window.trackerName = trackerName
+    local pageName = window:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+    pageName:SetPoint("TOPLEFT", PADDING + listOffset, -(TOP_HEIGHT - 24))
+    window.pageName = pageName
 
     -- Options area. Scrolls with the mouse wheel when taller than the limit.
     local scroll = CreateFrame("ScrollFrame", nil, window)
@@ -245,10 +286,10 @@ local function CreateWindow()
     -- Close with Escape
     table.insert(UISpecialFrames, FRAME_NAME)
 
-    if #trackers > 0 then
-        SelectTracker(trackers[1])
+    if #pages > 0 then
+        SelectPage(pages[1])
     else
-        trackerName:SetText("Aucun tracker disponible pour ce personnage.")
+        pageName:SetText("Aucun tracker disponible pour ce personnage.")
         lockButton:Disable()
     end
 end
@@ -258,8 +299,8 @@ end
 function ns.RefreshConfig()
     if not window or not window:IsShown() then return end
     UpdateLockButton()
-    if currentTracker and panels[currentTracker] then
-        panels[currentTracker]:Refresh()
+    if currentPage and panels[currentPage] then
+        panels[currentPage]:Refresh()
     end
 end
 

@@ -14,8 +14,8 @@ local addonName, ns = ...
 -- combat the bar is trusted if it proved reliable; otherwise the last known
 -- state is kept, updated by the player's own casts and by death.
 --
--- The icon is a member of the reminder group (Widgets/IconGroup.lua), which
--- owns the position shared by all the reminder icons.
+-- The icon is shown in the reminder zone (Zones/Reminders.lua), which owns
+-- its position and appearance.
 
 local ICON_SPELL_ID = 7294 -- Retribution Aura
 local ICON_FALLBACK = "Interface\\Icons\\Spell_Holy_AuraOfLight"
@@ -71,22 +71,12 @@ end
 
 local Tracker = { key = "paladinAura", name = "Aura de paladin" }
 
--- Settings (db.settings): the tracker's own keys plus those of the alert icon.
+-- Settings (db.settings). The appearance of the icon is that of the zone.
 Tracker.defaults = { enabled = true }
-for key, value in pairs(ns.AlertIconDefaults) do
-    Tracker.defaults[key] = value
-end
 
 Tracker.options = {
-    { type = "header", label = "Général" },
-    { type = "toggle", key = "enabled", label = "Activé" },
+    { type = "toggle", key = "enabled", label = "Rappel d'aura", half = true },
 }
-for _, option in ipairs(ns.AlertIconOptions) do
-    table.insert(Tracker.options, option)
-end
-for _, option in ipairs(ns.ReminderGroupOptions) do
-    table.insert(Tracker.options, option)
-end
 
 function Tracker:ShouldLoad()
     local _, class = UnitClass("player")
@@ -158,7 +148,6 @@ end
 
 -- Called by the config window after it changed settings[key].
 function Tracker:ApplySettings(key)
-    self.icon:ApplySettings()
     if key == nil or key == "enabled" then
         self:UpdateEvents()
     end
@@ -169,11 +158,10 @@ function Tracker:Init(db)
     self.db = db
     self.settings = db.settings
 
-    -- db.position: where the icon was before it joined the reminder group
-    self.group = ns.GetReminderGroup(db.position)
-    db.position = nil
+    local zone = ns.GetReminderZone()
+    zone:AddMember(self)
 
-    self.icon = ns.CreateAlertIcon(self.settings, self.group)
+    self.icon = ns.CreateAlertIcon(zone.settings, zone.group)
     self.icon:SetIcon(GetSpellTexture and GetSpellTexture(ICON_SPELL_ID) or ICON_FALLBACK)
     self.icon:SetText(LABEL)
 
@@ -186,24 +174,11 @@ end
 function Tracker:SetUnlocked(unlocked)
     self.unlocked = unlocked
     self:Refresh()
-    self.group:SetMovable(unlocked)
 end
 
 function Tracker:SetPreview(preview)
     self.preview = preview
     self:Refresh()
-end
-
-function Tracker:GetPosition()
-    return self.group:GetOffset()
-end
-
-function Tracker:SetPosition(x, y)
-    self.group:SetOffset(x, y)
-end
-
-function Tracker:ResetPosition()
-    self.group:ResetPosition()
 end
 
 ns.RegisterTracker(Tracker)
