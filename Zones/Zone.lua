@@ -65,12 +65,17 @@ function Zone:AddMember(tracker)
 end
 
 -- Called by the config window after it changed settings[key]: every icon of
--- the zone reads the shared settings again.
+-- the zone reads the shared settings again, and so does every member tracker
+-- that has ApplyZoneSettings(key) (zone settings about what is tracked, such
+-- as the reminders' "ownOnly").
 function Zone:ApplySettings(key)
     for _, icon in ipairs(self.group.icons) do
         icon:ApplySettings()
     end
     self.group:Layout()
+    for _, tracker in ipairs(self.members) do
+        if tracker.ApplyZoneSettings then tracker:ApplyZoneSettings(key) end
+    end
 end
 
 function Zone:SetMovable(movable)

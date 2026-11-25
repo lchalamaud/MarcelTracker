@@ -2,8 +2,8 @@ local addonName, ns = ...
 
 -- Paladin blessing tracker: nothing is shown while the player has a paladin
 -- blessing; as soon as there is none, a blessing icon labelled "Béné" pops
--- up and shakes until a blessing is back. With the "ownOnly" setting, only
--- the blessings cast by the player count; otherwise anyone's do.
+-- up and shakes until a blessing is back. With the reminder zone's "ownOnly"
+-- setting, only the blessings cast by the player count; otherwise anyone's do.
 --
 -- Out of combat the player's buffs are the source of truth, matched by name:
 -- each blessing is remembered by its aura instance ID with its expiry time,
@@ -103,11 +103,10 @@ end
 local Tracker = { key = "paladinBlessing", name = "Bénédiction" }
 
 -- Settings (db.settings). The appearance of the icon is that of the zone.
-Tracker.defaults = { enabled = true, ownOnly = true }
+Tracker.defaults = { enabled = true }
 
 Tracker.options = {
     { type = "toggle", key = "enabled", label = "Rappel de bénédiction", half = true },
-    { type = "toggle", key = "ownOnly", label = "Seulement mes bénédictions", half = true },
 }
 
 function Tracker:ShouldLoad()
@@ -131,7 +130,7 @@ end
 function Tracker:ScanBlessings()
     self:ResetState(true)
     for index = 1, 40 do
-        local aura = GetPlayerBuff(index, self.settings.ownOnly)
+        local aura = GetPlayerBuff(index, self.zone.settings.ownOnly)
         if not aura then break end
         if IsBlessingName(aura.name) then
             local id = aura.auraInstanceID
@@ -162,7 +161,7 @@ function Tracker:ApplyAuraUpdate(info)
     if type(added) == "table" and not issecrettable(added) then
         for _, aura in ipairs(added) do
             if type(aura) == "table" and not issecrettable(aura) and IsBlessingName(aura.name)
-                and (not self.settings.ownOnly or IsOwnAura(aura)) then
+                and (not self.zone.settings.ownOnly or IsOwnAura(aura)) then
                 local id = aura.auraInstanceID
                 if Readable(id) then
                     self.auras[id] = ReadExpiration(aura.expirationTime)
@@ -310,6 +309,11 @@ function Tracker:Init(db)
     self.events:SetScript("OnEvent", function(_, ...) self:OnEvent(...) end)
 
     self:ApplySettings()
+end
+
+-- Called by the zone after it changed settings[key].
+function Tracker:ApplyZoneSettings(key)
+    if key == nil or key == "ownOnly" then self:Refresh() end
 end
 
 function Tracker:SetUnlocked(unlocked)

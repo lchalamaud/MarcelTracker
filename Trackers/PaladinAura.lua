@@ -2,7 +2,8 @@ local addonName, ns = ...
 
 -- Paladin aura tracker: nothing is shown while one of the paladin's own auras
 -- is active; as soon as there is none, an aura icon labelled "Aura" pops up
--- and shakes until an aura is cast again. With the "ownOnly" setting off,
+-- and shakes until an aura is cast again. With the reminder zone's "ownOnly"
+-- setting off,
 -- another paladin's aura on the player hides the icon too.
 --
 -- Two sources tell whether one of the player's own auras is active:
@@ -77,11 +78,10 @@ end
 local Tracker = { key = "paladinAura", name = "Aura de paladin" }
 
 -- Settings (db.settings). The appearance of the icon is that of the zone.
-Tracker.defaults = { enabled = true, ownOnly = true }
+Tracker.defaults = { enabled = true }
 
 Tracker.options = {
     { type = "toggle", key = "enabled", label = "Rappel d'aura", half = true },
-    { type = "toggle", key = "ownOnly", label = "Seulement mes auras", half = true },
 }
 
 function Tracker:ShouldLoad()
@@ -110,7 +110,7 @@ function Tracker:HasAura()
         self.otherAura = CountAuraBuffs(false) > own
     end
 
-    if self.settings.ownOnly then return self.ownAura end
+    if self.zone.settings.ownOnly then return self.ownAura end
     if self.ownAura or self.otherAura then return true end
     if self.ownAura == nil or self.otherAura == nil then return nil end
     return false
@@ -186,6 +186,11 @@ function Tracker:Init(db)
     self.events:SetScript("OnEvent", function(_, ...) self:OnEvent(...) end)
 
     self:ApplySettings()
+end
+
+-- Called by the zone after it changed settings[key].
+function Tracker:ApplyZoneSettings(key)
+    if key == nil or key == "ownOnly" then self:Refresh() end
 end
 
 function Tracker:SetUnlocked(unlocked)
