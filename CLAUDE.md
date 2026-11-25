@@ -38,7 +38,7 @@ Conséquences pour le code :
 - `Config/Window.lua` : fenêtre de config autonome (`/marcel config`), une page par zone (options des trackers de la zone sous « Contenu », puis apparence et position de la zone) et une page par tracker hors zone (barre du sceau), plus un simple bouton dans Options > AddOns. Aucune logique dans le panneau Blizzard (taint).
 - `design/` : maquettes des textures de barre (`index.html` + PNG), produites par `tools/generate_designs.py`. Non chargé par le jeu.
 - `Media/` : textures chargées par le jeu (`.tga`), converties depuis `design/` par `python3 tools/generate_textures.py`. Ne pas les éditer à la main.
-- `Trackers/*.lua` : un fichier par tracker, enregistré via `ns.RegisterTracker`. Pour apparaître dans la config, un tracker déclare `name`, `defaults`, `options` et `ApplySettings(key)` ; ses réglages vivent dans `MarcelTrackerDB[key].settings`. Un tracker de zone ne déclare que ses propres options (activé…), affichées sur la page de sa zone.
+- `Trackers/*.lua` : un fichier par tracker, enregistré via `ns.RegisterTracker`. Pour apparaître dans la config, un tracker déclare `name`, `defaults`, `options` et `ApplySettings(key)` ; ses réglages vivent dans `MarcelTrackerDB[key].settings`. Un tracker de zone ne déclare que ses propres options (activé…), affichées sur la page de sa zone. `Trackers/AuraCaster.lua` n'affiche rien à l'écran : il ajoute le lanceur (« Lancé par … ») aux infobulles des auras, via des hooks sur les setters de `GameTooltip`.
 - Namespace partagé entre fichiers via `local addonName, ns = ...` ; aucune globale hormis `MarcelTrackerDB` (SavedVariables), `SLASH_*` / `SlashCmdList` et `MarcelTrackerConfigFrame` (nom de frame requis par `UISpecialFrames` pour fermer avec Échap).
 
 ## Commandes en jeu
